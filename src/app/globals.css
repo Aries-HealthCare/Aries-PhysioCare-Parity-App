@@ -1,0 +1,506 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* ─── Flutter AriesXpert Mobile Light Palette ─────── */
+    --background: 250 33% 97%;       /* #F6F5FB soft lavender-white */
+    --foreground: 240 3% 12%;        /* #1D1D1F premium charcoal black */
+    --card: 0 0% 100%;               /* #FFFFFF pure white */
+    --card-foreground: 240 3% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 3% 12%;
+
+    /* Primary: Rich Violet / Electric Blue */
+    --primary: 263 70% 58%;          /* #7C3AED / #007AFF */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 250 25% 94%;
+    --secondary-foreground: 263 70% 45%;
+
+    --muted: 240 5% 94%;
+    --muted-foreground: 240 2% 44%;  /* #6E6E73 luxury muted grey */
+
+    /* Accent: Luxury Metallic Gold */
+    --accent: 45 66% 52%;            /* #D4AF37 */
+    --accent-foreground: 240 3% 12%;
+
+    --destructive: 4 100% 59%;       /* #FF3B30 */
+    --destructive-foreground: 0 0% 100%;
+    --success: 134 61% 49%;          /* #34C759 */
+    
+    --border: 240 6% 91%;            /* #E5E5EA */
+    --input: 240 6% 91%;
+    --ring: 263 70% 58%;
+    --radius: 1.25rem;
+
+    /* Charts */
+    --chart-1: 263 70% 58%;
+    --chart-2: 45 66% 52%;
+    --chart-3: 211 100% 50%;
+    --chart-4: 134 61% 49%;
+    --chart-5: 4 100% 59%;
+  }
+
+  .dark {
+    /* ─── Flutter AriesXpert Mobile OLED Dark Mode ───── */
+    --background: 0 0% 0%;           /* #000000 True OLED Black */
+    --foreground: 0 0% 100%;         /* #FFFFFF True White */
+    --card: 0 0% 7%;                 /* #111111 Deep Graphite */
+    --card-foreground: 0 0% 100%;
+    --popover: 0 0% 7%;
+    --popover-foreground: 0 0% 100%;
+
+    /* Primary: Vibrant Neon Blue */
+    --primary: 208 100% 50%;         /* #0088FF */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 0 0% 12%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 0 0% 12%;
+    --muted-foreground: 240 2% 57%;  /* #8E8E93 */
+
+    /* Accent: Luxury Metallic Gold */
+    --accent: 45 66% 52%;            /* #D4AF37 */
+    --accent-foreground: 0 0% 0%;
+
+    --destructive: 4 100% 61%;       /* #FF453A */
+    --destructive-foreground: 0 0% 100%;
+    --success: 135 64% 50%;          /* #30D158 */
+
+    --border: 0 0% 16%;
+    --input: 0 0% 16%;
+    --ring: 208 100% 50%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border/40;
+  }
+
+  body {
+    @apply bg-background text-foreground font-body leading-relaxed;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    @apply font-headline tracking-tight;
+  }
+}
+
+@layer utilities {
+  .glassmorphic {
+    @apply bg-white/70 dark:bg-black/40 backdrop-blur-2xl border border-white/20 dark:border-white/10 transition-all duration-500;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.05);
+    will-change: backdrop-filter;
+  }
+
+  .dark .glassmorphic {
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
+  }
+
+  .glassmorphic:hover {
+    @apply dark:bg-black/60 dark:border-primary/50 border-primary/20;
+    box-shadow: 0 12px 45px 0 rgba(0, 0, 0, 0.1);
+  }
+
+  .dark .glassmorphic:hover {
+    box-shadow: inset 0 0 40px rgba(255, 255, 255, 0.05), 0 0 45px hsl(var(--primary) / 0.25);
+  }
+
+  .neon-accent-border {
+    @apply border border-accent/40 transition-all duration-500 dark:border-accent/60;
+    box-shadow: 0 0 20px hsl(var(--accent) / 0.2);
+  }
+
+  .neon-accent-border:hover {
+    box-shadow: 0 0 30px hsl(var(--accent) / 0.4);
+  }
+
+  .dark .neon-accent-border:hover {
+    box-shadow: 0 0 40px rgba(255, 215, 0, 0.4);
+  }
+
+  .neon-primary-border {
+    @apply border border-primary/20 transition-all duration-500 dark:border-primary/40;
+    box-shadow: 0 0 25px hsl(var(--primary) / 0.15);
+  }
+
+  .neon-primary-border:hover {
+    box-shadow: 0 0 35px hsl(var(--primary) / 0.3);
+  }
+
+  .dark .neon-primary-border:hover {
+    box-shadow: 0 0 40px hsl(var(--primary) / 0.35);
+  }
+
+  .soft-shadow {
+    box-shadow: 0 12px 40px -15px rgba(0, 0, 0, 0.1);
+  }
+
+  .dark .soft-shadow {
+    box-shadow: 0 12px 40px -15px rgba(0, 0, 0, 0.6);
+  }
+
+  .premium-card {
+    @apply bg-card border border-border/50 shadow-lg shadow-black/5 dark:border-white/5 rounded-3xl transition-all duration-500 hover:shadow-2xl hover:-translate-y-1 hover:border-primary/30 dark:hover:border-primary/60 dark:hover:bg-primary/5 relative overflow-hidden;
+  }
+
+  .dark .premium-card {
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+  }
+
+  .dark .premium-card:hover {
+    box-shadow: inset 0 0 40px rgba(255, 255, 255, 0.05), 0 0 50px hsl(var(--primary) / 0.25);
+  }
+
+  .premium-gradient {
+    background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(348, 83%, 35%) 100%);
+  }
+
+  .premium-gradient-text {
+    @apply bg-clip-text text-transparent;
+    background-image: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--accent)) 100%);
+  }
+
+  .healthcare-motion {
+    @apply transition-all duration-700 ease-healthcare;
+  }
+
+  .stagger-1 {
+    animation-delay: 100ms;
+  }
+
+  .stagger-2 {
+    animation-delay: 200ms;
+  }
+
+  .stagger-3 {
+    animation-delay: 300ms;
+  }
+
+  .stagger-4 {
+    animation-delay: 400ms;
+  }
+
+  .stagger-5 {
+    animation-delay: 500ms;
+  }
+
+  /* ── Custom Premium Animations ─────────────── */
+  @keyframes slow-zoom {
+    from {
+      transform: scale(1);
+    }
+
+    to {
+      transform: scale(1.1);
+    }
+  }
+
+  .animate-slow-zoom {
+    animation: slow-zoom 20s ease-in-out infinite alternate;
+  }
+
+  @keyframes bounce-subtle {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+
+    50% {
+      transform: translateY(-10px);
+    }
+  }
+
+  .animate-bounce-subtle {
+    animation: bounce-subtle 4s ease-in-out infinite;
+  }
+
+  /* ── AriesXpert Gold Shiny & Metallic Styling ─────────────── */
+  @keyframes gold-rotate-border {
+    0% {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
+    }
+    100% {
+      background-position: 0% 50%;
+    }
+  }
+
+  @keyframes gold-pulse-ring {
+    0% {
+      box-shadow: 0 0 0 0 rgba(212, 175, 55, 0.4), 0 0 20px 0 rgba(255, 215, 0, 0.2);
+    }
+    70% {
+      box-shadow: 0 0 0 20px rgba(212, 175, 55, 0), 0 0 40px 10px rgba(255, 215, 0, 0.4);
+    }
+    100% {
+      box-shadow: 0 0 0 0 rgba(212, 175, 55, 0), 0 0 20px 0 rgba(255, 215, 0, 0.2);
+    }
+  }
+
+  @keyframes shimmer-sweep {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(200%);
+    }
+  }
+
+  .gold-shiny-border {
+    position: relative;
+    border-radius: 1.5rem;
+    padding: 1px;
+    background: linear-gradient(135deg, rgba(212, 175, 55, 0.8) 0%, rgba(120, 85, 20, 0.3) 30%, rgba(255, 223, 128, 0.9) 60%, rgba(140, 100, 25, 0.4) 100%);
+    background-size: 200% 200%;
+    animation: gold-rotate-border 6s ease infinite;
+    box-shadow: 0 10px 50px -10px rgba(0, 0, 0, 0.7), 0 0 30px rgba(212, 175, 55, 0.15);
+  }
+
+  .gold-shiny-border::before {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: 1.5rem;
+    padding: 1.5px;
+    background: linear-gradient(90deg, transparent, rgba(255, 223, 128, 0.8), transparent);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  .gold-shiny-border:hover {
+    box-shadow: 0 15px 60px -10px rgba(0, 0, 0, 0.9), 0 0 45px rgba(212, 175, 55, 0.3);
+  }
+
+  .gold-button {
+    background: linear-gradient(135deg, #e6c666 0%, #c49a37 50%, #9e7923 100%);
+    color: #0d111a;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 4px 20px rgba(196, 154, 55, 0.3);
+  }
+
+  .gold-button::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 50%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+    transform: skewX(-20deg) translateX(-150%);
+    transition: none;
+  }
+
+  .gold-button:hover::after {
+    animation: shimmer-sweep 1.2s ease-in-out;
+  }
+
+  .gold-button:hover {
+    background: linear-gradient(135deg, #f3d476 0%, #d4aa42 50%, #b0892b 100%);
+    box-shadow: 0 6px 30px rgba(212, 175, 55, 0.5), 0 0 15px rgba(255, 215, 0, 0.4);
+    transform: translateY(-1px);
+  }
+
+  .gold-tab-active {
+    border: 1px solid rgba(212, 175, 55, 0.7);
+    background: rgba(212, 175, 55, 0.08);
+    color: #f3d476;
+    box-shadow: 0 0 15px rgba(212, 175, 55, 0.2);
+  }
+
+  .fingerprint-scanner {
+    animation: gold-pulse-ring 3s infinite;
+  }
+
+  /* ── AI Buddy Avatar & Audio Soundwave Animations ─────── */
+  @keyframes avatar-breath {
+    0%, 100% {
+      transform: scale(1);
+      box-shadow: 0 0 25px rgba(124, 58, 237, 0.25), 0 0 50px rgba(0, 136, 255, 0.15);
+    }
+    50% {
+      transform: scale(1.035);
+      box-shadow: 0 0 40px rgba(124, 58, 237, 0.5), 0 0 70px rgba(0, 136, 255, 0.3);
+    }
+  }
+
+  @keyframes sound-wave-bar {
+    0%, 100% {
+      height: 4px;
+    }
+    50% {
+      height: 24px;
+    }
+  }
+
+  @keyframes float-y {
+    0%, 100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-6px);
+    }
+  }
+
+  @keyframes radar-ripple {
+    0% {
+      transform: scale(0.9);
+      opacity: 0.9;
+    }
+    100% {
+      transform: scale(2.2);
+      opacity: 0;
+    }
+  }
+
+  @keyframes pulse-glow-purple {
+    0%, 100% {
+      box-shadow: 0 0 15px rgba(124, 58, 237, 0.3);
+    }
+    50% {
+      box-shadow: 0 0 35px rgba(124, 58, 237, 0.65);
+    }
+  }
+
+  .animate-avatar-breath {
+    animation: avatar-breath 4s ease-in-out infinite;
+  }
+
+  .animate-float-y {
+    animation: float-y 3.5s ease-in-out infinite;
+  }
+
+  .animate-sound-wave-1 {
+    animation: sound-wave-bar 0.8s ease-in-out infinite;
+    animation-delay: 0.1s;
+  }
+  .animate-sound-wave-2 {
+    animation: sound-wave-bar 0.8s ease-in-out infinite;
+    animation-delay: 0.3s;
+  }
+  .animate-sound-wave-3 {
+    animation: sound-wave-bar 0.8s ease-in-out infinite;
+    animation-delay: 0.5s;
+  }
+  .animate-sound-wave-4 {
+    animation: sound-wave-bar 0.8s ease-in-out infinite;
+    animation-delay: 0.2s;
+  }
+  .animate-sound-wave-5 {
+    animation: sound-wave-bar 0.8s ease-in-out infinite;
+    animation-delay: 0.4s;
+  }
+
+  .animate-radar-ripple {
+    animation: radar-ripple 2s cubic-bezier(0, 0.2, 0.8, 1) infinite;
+  }
+
+  .animate-pulse-glow {
+    animation: pulse-glow-purple 3s ease-in-out infinite;
+  }
+
+  /* ── 3D Digital ID & Laser Animations ─────────────── */
+  @keyframes laser-sweep {
+    0% {
+      top: 2%;
+      opacity: 0;
+    }
+    15% {
+      opacity: 1;
+    }
+    85% {
+      opacity: 1;
+    }
+    100% {
+      top: 96%;
+      opacity: 0;
+    }
+  }
+
+  @keyframes holographic-shift {
+    0% {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
+    }
+    100% {
+      background-position: 0% 50%;
+    }
+  }
+
+  @keyframes kpi-shimmer {
+    0% {
+      transform: translateX(-100%) rotate(45deg);
+    }
+    100% {
+      transform: translateX(200%) rotate(45deg);
+    }
+  }
+
+  .perspective-1000 {
+    perspective: 1000px;
+  }
+
+  .transform-style-3d {
+    transform-style: preserve-3d;
+  }
+
+  .backface-hidden {
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+  }
+
+  .rotate-y-180 {
+    transform: rotateY(180deg);
+  }
+
+  .animate-laser-sweep {
+    animation: laser-sweep 2.2s ease-in-out infinite;
+  }
+
+  .animate-holographic {
+    background-size: 250% 250%;
+    animation: holographic-shift 7s ease infinite;
+  }
+
+  .animate-kpi-shimmer {
+    animation: kpi-shimmer 3s ease-in-out infinite;
+  }
+
+  /* ── Core Web Vitals & Mobile Render Optimization ── */
+  .content-auto {
+    content-visibility: auto;
+    contain-intrinsic-size: 1px 700px;
+  }
+
+  .gpu-accelerated {
+    transform: translateZ(0);
+    backface-visibility: hidden;
+  }
+}

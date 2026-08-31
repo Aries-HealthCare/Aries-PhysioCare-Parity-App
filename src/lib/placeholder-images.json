@@ -1,0 +1,148 @@
+{
+  "placeholderImages": [
+    {
+      "id": "hero-1",
+      "description": "Hospital-Grade Home Physiotherapy Treatment",
+      "imageUrl": "https://images.unsplash.com/photo-1576091160550-2173dba999ef?auto=format&fit=crop&q=85&w=2400",
+      "imageHint": "home physiotherapy clinical session"
+    },
+    {
+      "id": "hero-2",
+      "description": "Professional Certified Home Nursing Care",
+      "imageUrl": "https://images.unsplash.com/photo-1584515933487-779824d29309?auto=format&fit=crop&q=85&w=2400",
+      "imageHint": "compassionate home nursing vitals monitoring"
+    },
+    {
+      "id": "hero-3",
+      "description": "Post-Surgical Orthopedic Rehabilitation",
+      "imageUrl": "https://images.unsplash.com/photo-1579684385127-1ef15d508118?auto=format&fit=crop&q=85&w=2400",
+      "imageHint": "post-op orthopedic joint rehabilitation"
+    },
+    {
+      "id": "hero-4",
+      "description": "Precision Dry Needling and Trigger Point Therapy",
+      "imageUrl": "https://images.unsplash.com/photo-1544367567-0f2fcb009e0b?auto=format&fit=crop&q=85&w=2400",
+      "imageHint": "dry needling intramuscular stimulation"
+    },
+    {
+      "id": "hero-5",
+      "description": "Biomechanical Mobility & Exercise Rehabilitation",
+      "imageUrl": "https://images.unsplash.com/photo-1517836357463-d25dfeac3438?auto=format&fit=crop&q=85&w=2400",
+      "imageHint": "biomechanical active mobility exercise"
+    },
+    {
+      "id": "hero-6",
+      "description": "Specialized Geriatric & Senior Mobility Care",
+      "imageUrl": "https://images.unsplash.com/photo-1576765608535-5f04c18459e4?auto=format&fit=crop&q=85&w=2400",
+      "imageHint": "senior independence and mobility rehabilitation"
+    },
+    {
+      "id": "hero-7",
+      "description": "Clinical Nutrition & Evidence-Based Dietetics",
+      "imageUrl": "https://images.unsplash.com/photo-1490645935967-10de6ba17061?auto=format&fit=crop&q=85&w=2400",
+      "imageHint": "clinical nutrition and metabolic recovery"
+    },
+    {
+      "id": "therapist-1",
+      "description": "Portrait of Dr. Emily Carter, Senior Neuro Physiotherapist.",
+      "imageUrl": "https://images.unsplash.com/photo-1594824476967-48c8b964273f?auto=format&fit=crop&q=85&w=1200",
+      "imageHint": "physical therapist female specialist"
+    },
+    {
+      "id": "therapist-2",
+      "description": "Portrait of Dr. Ben Adams, Orthopedic Consultant.",
+      "imageUrl": "https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&q=85&w=1200",
+      "imageHint": "physical therapist male consultant"
+    },
+    {
+      "id": "therapist-3",
+      "description": "Portrait of Dr. Chloe Davis, Pediatric Specialist.",
+      "imageUrl": "https://images.unsplash.com/photo-1559839734-2b71ea197ec2?auto=format&fit=crop&q=85&w=1200",
+      "imageHint": "pediatric healthcare specialist"
+    },
+    {
+      "id": "therapist-4",
+      "description": "Portrait of Dr. Sam Evans, Sports Rehabilitation Director.",
+      "imageUrl": "https://images.unsplash.com/photo-1537368910025-700350fe46c7?auto=format&fit=crop&q=85&w=1200",
+      "imageHint": "sports rehabilitation physiotherapist"
+    },
+    {
+      "id": "leader-1",
+      "description": "Portrait of Mr. Akshay Patel, Founder & CEO.",
+      "imageUrl": "/images/team/akshay-patel.png",
+      "imageHint": "clinical director and founder"
+    },
+    {
+      "id": "leader-coo",
+      "description": "Portrait of Ms. Karishma Rathod, COO.",
+      "imageUrl": "/images/team/karishma-rathod.png",
+      "imageHint": "chief operating officer"
+    },
+    {
+      "id": "location-map",
+      "description": "Aries PhysioCare nationwide healthcare delivery network across India.",
+      "imageUrl": "https://images.unsplash.com/photo-1529253355930-ddbe423a2ac7?auto=format&fit=crop&q=85&w=1600",
+      "imageHint": "city healthcare network"
+    },
+    {
+      "id": "blog-1",
+      "description": "Evidence-based spine mobilization and postural correction protocols.",
+      "imageUrl": "https://images.unsplash.com/photo-1519823551278-64ac92734fb1?auto=format&fit=crop&q=85&w=1600",
+      "imageHint": "spine mobilization and back pain relief"
+    },
+    {
+      "id": "blog-2",
+      "description": "Clinical medical nutrition therapy for rapid tissue regeneration.",
+      "imageUrl": "https://images.unsplash.com/photo-1490645935967-10de6ba17061?auto=format&fit=crop&q=85&w=1600",
+      "imageHint": "clinical nutrition and anti-inflammatory diet"
+    },
+    {
+      "id": "blog-3",
+      "description": "Orthopedic knee biomechanics and post-operative joint rehabilitation.",
+      "imageUrl": "https://images.unsplash.com/photo-1579684385127-1ef15d508118?auto=format&fit=crop&q=85&w=1600",
+      "imageHint": "knee joint assessment and recovery"
+    },
+    {
+      "id": "blog-4",
+      "description": "Advanced athletic conditioning and sports injury rehabilitation protocols.",
+      "imageUrl": "https://images.unsplash.com/photo-1517836357463-d25dfeac3438?auto=format&fit=crop&q=85&w=1600",
+      "imageHint": "sports physical therapy and conditioning"
+    },
+    {
+      "id": "blog-5",
+      "description": "Neuro-motor re-education and task-oriented functional training for stroke recovery.",
+      "imageUrl": "https://images.unsplash.com/photo-1559757175-5700dde675bc?auto=format&fit=crop&q=85&w=1600",
+      "imageHint": "neurological motor rehabilitation"
+    },
+    {
+      "id": "blog-6",
+      "description": "Workplace ergonomics assessment and postural wellness for professionals.",
+      "imageUrl": "https://images.unsplash.com/photo-1515378791036-0648a3ef77b2?auto=format&fit=crop&q=85&w=1600",
+      "imageHint": "workplace ergonomics and posture correction"
+    },
+    {
+      "id": "blog-7",
+      "description": "Senior balance training, fall prevention, and geriatric independence.",
+      "imageUrl": "https://images.unsplash.com/photo-1576765608535-5f04c18459e4?auto=format&fit=crop&q=85&w=1600",
+      "imageHint": "geriatric balance and mobility training"
+    },
+    {
+      "id": "condition-knee-pain",
+      "description": "Clinical patellofemoral and ligament assessment for knee pain.",
+      "imageUrl": "https://images.unsplash.com/photo-1579684385127-1ef15d508118?auto=format&fit=crop&q=85&w=1600",
+      "imageHint": "knee pain orthopedic examination"
+    },
+    {
+      "id": "condition-back-pain",
+      "description": "Comprehensive lumbar spine and core stability assessment for back pain.",
+      "imageUrl": "https://images.unsplash.com/photo-1519823551278-64ac92734fb1?auto=format&fit=crop&q=85&w=1600",
+      "imageHint": "lumbar spine assessment and back pain"
+    },
+    {
+      "id": "condition-placeholder",
+      "description": "Hospital-grade home clinical assessment and treatment.",
+      "imageUrl": "https://images.unsplash.com/photo-1576091160550-2173dba999ef?auto=format&fit=crop&q=85&w=1600",
+      "imageHint": "clinical diagnostic assessment"
+    }
+  ]
+}
