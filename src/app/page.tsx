@@ -1,8 +1,8 @@
 'use client';
 
 import React from 'react';
-import ProviderLoginPage from './login/page';
+import { LoginPortal } from '@/components/auth/login-portal';
 
 export default function RootParityPage() {
-  return <ProviderLoginPage />;
+  return <LoginPortal />;
 }
