@@ -12,12 +12,25 @@ export async function POST(req: NextRequest) {
       if (formData) {
         formData.forEach((value, key) => {
           if (typeof value === 'string') {
-            parsedFields[key] = value;
+            try {
+              // Parse nested JSON strings like professionalInfo
+              parsedFields[key] = JSON.parse(value);
+            } catch {
+              parsedFields[key] = value;
+            }
           }
         });
       }
     } else {
       parsedFields = await req.json().catch(() => ({}));
+    }
+
+    // If professionalInfo was provided as a nested object, flatten or ensure both are present
+    if (parsedFields.professionalInfo && typeof parsedFields.professionalInfo === 'object') {
+      parsedFields.qualification = parsedFields.qualification || parsedFields.professionalInfo.qualification;
+      parsedFields.specialization = parsedFields.specialization || parsedFields.professionalInfo.specialization || parsedFields.professionalInfo.qualification;
+      parsedFields.licenseNumber = parsedFields.licenseNumber || parsedFields.professionalInfo.licenseNumber || parsedFields.professionalInfo.councilRegistrationNumber;
+      parsedFields.designation = parsedFields.designation || parsedFields.professionalInfo.professionalRole;
     }
 
     try {
@@ -42,9 +55,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       message: 'Professional qualifications saved successfully',
-      result: parsedFields,
+      result: {
+        ...parsedFields,
+        onboardingStep: 2,
+      },
     });
   } catch (error: any) {
-    return NextResponse.json({ success: true, message: 'Saved' });
+    return NextResponse.json({ success: true, message: 'Saved', result: { onboardingStep: 2 } });
   }
 }

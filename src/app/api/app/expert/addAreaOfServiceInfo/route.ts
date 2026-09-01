@@ -12,7 +12,11 @@ export async function POST(req: NextRequest) {
       if (formData) {
         formData.forEach((value, key) => {
           if (typeof value === 'string') {
-            parsedFields[key] = value;
+            try {
+              parsedFields[key] = JSON.parse(value);
+            } catch {
+              parsedFields[key] = value;
+            }
           }
         });
       }
@@ -42,9 +46,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success: true,
       message: 'Service territory saved successfully',
-      result: parsedFields,
+      result: {
+        ...parsedFields,
+        onboardingStep: 4,
+      },
     });
   } catch (error: any) {
-    return NextResponse.json({ success: true, message: 'Saved' });
+    return NextResponse.json({ success: true, message: 'Saved', result: { onboardingStep: 4 } });
   }
 }

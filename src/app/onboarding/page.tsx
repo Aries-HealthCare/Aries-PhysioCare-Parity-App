@@ -452,9 +452,12 @@ export default function ProviderOnboardingPage() {
   const [isPayingFee, setIsPayingFee] = useState(false);
   const [isSubmittedSuccess, setIsSubmittedSuccess] = useState(false);
 
-  // ── Pre-fill on Mount & Hydrate from Session ─────────
+  // ── Pre-fill on Mount & Hydrate from Session (Run strictly once) ──
+  const hasHydratedRef = useRef(false);
+
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || hasHydratedRef.current) return;
+    hasHydratedRef.current = true;
 
     if (user) {
       if (user.fullName) {
@@ -555,7 +558,7 @@ export default function ProviderOnboardingPage() {
         if (d.selectedCountry && COUNTRY_CONFIGS[d.selectedCountry]) {
           setSelectedCountry(d.selectedCountry);
         }
-        if (d.profilePhotoUrl && !profilePhotoUrl) {
+        if (d.profilePhotoUrl) {
           setProfilePhotoUrl(d.profilePhotoUrl);
         }
         if (d.maxUnlockedStep !== undefined && typeof d.maxUnlockedStep === 'number') {
@@ -577,8 +580,8 @@ export default function ProviderOnboardingPage() {
         if (d.email && !user?.email) setEmail(d.email);
         if (d.city && !user?.city) setCity(d.city);
         if (d.licenseNumber && !user?.licenseNumber) setLicenseNumber(d.licenseNumber);
-        if (d.targetPincodes) setTargetPincodes(d.targetPincodes);
-        if (d.serviceAreas) setServiceAreas(d.serviceAreas);
+        if (d.targetPincodes && d.targetPincodes.length > 0) setTargetPincodes(d.targetPincodes);
+        if (d.serviceAreas && d.serviceAreas.length > 0) setServiceAreas(d.serviceAreas);
         if (d.bankFieldValues) setBankFieldValues((prev) => ({ ...prev, ...d.bankFieldValues }));
       } catch (_) {}
     }
@@ -768,19 +771,25 @@ export default function ProviderOnboardingPage() {
     setIsSubmitting(true);
 
     try {
-      const isValidMongoId = (id?: string) => Boolean(id && /^[0-9a-fA-F]{24}$/.test(id));
-      const currentUserId = isValidMongoId(user?._id) ? user!._id : '';
+      const cleanPhone = (phone || user?.phone || '').replace(/\D/g, '').slice(-10);
+      const effectiveUserId =
+        user?._id ||
+        user?.id ||
+        user?.therapistId ||
+        (cleanPhone ? 'exp_' + cleanPhone : '') ||
+        ('exp_' + Date.now());
 
       if (currentStep === 0) {
         // ── Step 1: Personal Details ──
         if (!fullName || !phone || !email || !city || !zipCode) {
-          setErrorMsg('Please complete all required personal details (Name, Phone, Email, Address, Zipcode).');
+          setErrorMsg('Please complete all required personal details (Name, Phone, Email, City, and Postal Code).');
           setIsSubmitting(false);
           return;
         }
 
         const fd = new FormData();
-        if (currentUserId) fd.append('user', currentUserId);
+        fd.append('user', effectiveUserId);
+        fd.append('userId', effectiveUserId);
         fd.append('fullName', fullName);
         fd.append('firstName', firstName || fullName.split(' ')[0]);
         fd.append('lastName', lastName || fullName.split(' ').slice(1).join(' '));
@@ -788,7 +797,7 @@ export default function ProviderOnboardingPage() {
         fd.append('dob', dob);
         fd.append('email', email.toLowerCase().trim());
         fd.append('password', password || 'Aries@2026');
-        fd.append('phone', phone.replace(/\D/g, '').slice(-10));
+        fd.append('phone', cleanPhone);
         fd.append('isMobileNumberVerified', 'true');
         fd.append('countryCode', COUNTRY_CONFIGS[selectedCountry]?.phoneCode || '+91');
         fd.append('countryName', selectedCountry);
@@ -801,7 +810,7 @@ export default function ProviderOnboardingPage() {
 
         // Append ID Text Values
         Object.entries(idTextValues).forEach(([k, v]) => {
-          fd.append(k, v);
+          if (v) fd.append(k, v);
         });
 
         // Append Profile Photo if selected
@@ -821,13 +830,13 @@ export default function ProviderOnboardingPage() {
         });
 
         const res = await providerApi.addPersonalInfo(fd);
-        const registeredId = res.result?._id || res.result?.id || (isValidMongoId(user?._id) ? user?._id : ('exp_' + phone.replace(/\D/g, '').slice(-10)));
+        const registeredId = res.result?._id || res.result?.id || effectiveUserId;
 
         updateUserData({
           _id: registeredId,
           fullName,
           email,
-          phone,
+          phone: cleanPhone,
           city,
           state: stateVal,
           countryName: selectedCountry,
@@ -835,19 +844,24 @@ export default function ProviderOnboardingPage() {
           profileImageUrl: profilePhotoUrl,
           onboardingStep: 1,
         });
+
         setMaxUnlockedStep((prev) => Math.max(prev, 1));
         setCurrentStep(1);
+        if (typeof window !== 'undefined') {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
       } else if (currentStep === 1) {
         // ── Step 2: Professional Qualifications ──
         if (!qualification || !licenseNumber) {
-          setErrorMsg(`Please enter your ${(COUNTRY_CONFIGS[selectedCountry] || COUNTRY_CONFIGS.India).licenseLabel || 'Medical Council Registration Number'} and Qualification.`);
+          setErrorMsg(`Please enter your ${(COUNTRY_CONFIGS[selectedCountry] || COUNTRY_CONFIGS.India).licenseLabel || 'Council Registration Number'} and Qualification.`);
           setIsSubmitting(false);
           return;
         }
 
-        const targetId = isValidMongoId(user?._id) ? user!._id : '';
         const fd = new FormData();
-        if (targetId) fd.append('user', targetId);
+        fd.append('user', effectiveUserId);
+        fd.append('userId', effectiveUserId);
+        fd.append('phone', cleanPhone);
 
         const professionalPayload = {
           professionalRole,
@@ -871,7 +885,7 @@ export default function ProviderOnboardingPage() {
         fd.append('licenseNumber', licenseNumber);
         fd.append('specialization', qualification);
         fd.append('designation', professionalRole);
-        fd.append('yearsOfExperience', yearOfExperience);
+        fd.append('yearsOfExperience', String(yearOfExperience));
 
         // Upload doc files if attached
         if (profDocs.regCert?.file) fd.append('registrationCertificate', profDocs.regCert.file);
@@ -889,11 +903,16 @@ export default function ProviderOnboardingPage() {
           designation: professionalRole,
           specialization: qualification,
           licenseNumber,
-          yearsOfExperience: yearOfExperience,
+          yearsOfExperience: String(yearOfExperience),
+          professionalInfo: professionalPayload,
           onboardingStep: 2,
         });
+
         setMaxUnlockedStep((prev) => Math.max(prev, 2));
         setCurrentStep(2);
+        if (typeof window !== 'undefined') {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
       } else if (currentStep === 2) {
         // ── Step 3: Banking & Payouts ──
         const currentCountry = COUNTRY_CONFIGS[selectedCountry] || COUNTRY_CONFIGS.India;
@@ -906,16 +925,17 @@ export default function ProviderOnboardingPage() {
           }
         }
 
-        const targetId = isValidMongoId(user?._id) ? user!._id : '';
         const fd = new FormData();
-        if (targetId) fd.append('user', targetId);
+        fd.append('user', effectiveUserId);
+        fd.append('userId', effectiveUserId);
+        fd.append('phone', cleanPhone);
 
         const bankPayload = {
           accountType,
           businessName: accountType === 'Current' ? businessName : '',
           accountHolderName: bankFieldValues.accountHolderName || fullName,
-          accountNumber: bankFieldValues.accountNumber,
-          bankName: bankFieldValues.bankName,
+          accountNumber: bankFieldValues.accountNumber || '',
+          bankName: bankFieldValues.bankName || '',
           ifscCode: (bankFieldValues.ifscCode || '').toUpperCase().trim(),
           upiId: bankFieldValues.upiId || '',
           panNumber: (bankFieldValues.panNumber || '').toUpperCase().trim(),
@@ -932,9 +952,16 @@ export default function ProviderOnboardingPage() {
         }
 
         await providerApi.addBankInfo(fd);
-        updateUserData({ onboardingStep: 3 });
+        updateUserData({
+          bankInfo: bankPayload,
+          onboardingStep: 3,
+        });
+
         setMaxUnlockedStep((prev) => Math.max(prev, 3));
         setCurrentStep(3);
+        if (typeof window !== 'undefined') {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
       } else if (currentStep === 3) {
         // ── Step 4: Service Territory & Commute ──
         if (targetPincodes.length === 0) {
@@ -943,12 +970,13 @@ export default function ProviderOnboardingPage() {
           return;
         }
 
-        const targetId = isValidMongoId(user?._id) ? user!._id : '';
         const fd = new FormData();
-        if (targetId) fd.append('user', targetId);
+        fd.append('user', effectiveUserId);
+        fd.append('userId', effectiveUserId);
+        fd.append('phone', cleanPhone);
 
         const areaPayload = {
-          city: serviceCity,
+          city: serviceCity || city,
           serviceAreas,
           pincode: zipCode,
           targetPincodes,
@@ -968,13 +996,18 @@ export default function ProviderOnboardingPage() {
 
         await providerApi.addAreaOfServiceInfo(fd);
         updateUserData({
-          city: serviceCity,
+          city: serviceCity || city,
           serviceAreas,
           targetPincodes,
+          areaOfServiceInfo: areaPayload,
           onboardingStep: 4,
         });
+
         setMaxUnlockedStep((prev) => Math.max(prev, 4));
         setCurrentStep(4);
+        if (typeof window !== 'undefined') {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
       } else if (currentStep === 4) {
         // ── Step 5: Compliance Declarations & Final Submit ──
         if (!declarationTrue || !agreeClinicalGuidelines || !agreeDoorstepSafety || !agreeTermsAndPolicies) {
@@ -983,10 +1016,7 @@ export default function ProviderOnboardingPage() {
           return;
         }
 
-        const targetId = isValidMongoId(user?._id) ? user!._id : '';
-        if (targetId) {
-          await providerApi.submitForReview(targetId);
-        }
+        await providerApi.submitForReview(effectiveUserId);
 
         updateUserData({
           onboardingStep: 5,
@@ -997,6 +1027,9 @@ export default function ProviderOnboardingPage() {
         });
 
         setIsSubmittedSuccess(true);
+        if (typeof window !== 'undefined') {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
       }
     } catch (err: any) {
       console.error('[Onboarding] Submission error:', err);
