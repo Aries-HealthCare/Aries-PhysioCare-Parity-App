@@ -35,7 +35,7 @@ type ScreenMode = 'mobile' | 'email' | 'otp' | 'reset';
 
 export default function ProviderLoginPage() {
   const router = useRouter();
-  const { loginWithPhoneOtp, loginWithEmail, isAuthenticated, isLoading: authLoading } = useProviderAuth();
+  const { user, loginWithPhoneOtp, loginWithEmail, isAuthenticated } = useProviderAuth();
 
   const [currentScreen, setCurrentScreen] = useState<ScreenMode>('mobile');
   const [selectedCountry, setSelectedCountry] = useState('India');
@@ -66,13 +66,6 @@ export default function ProviderLoginPage() {
   const [glossY, setGlossY] = useState(50);
 
   const currentCountry = COUNTRIES_CONFIG[selectedCountry] || COUNTRIES_CONFIG['India'];
-
-  // Redirect if already authenticated
-  useEffect(() => {
-    if (!authLoading && isAuthenticated) {
-      router.replace('/app');
-    }
-  }, [authLoading, isAuthenticated, router]);
 
   // Load cached credentials
   useEffect(() => {
@@ -400,6 +393,25 @@ export default function ProviderLoginPage() {
                   </motion.div>
                 )}
               </AnimatePresence>
+
+              {/* Active Session Indicator (if already logged in) */}
+              {isAuthenticated && user && (
+                <div className="p-3 rounded-2xl bg-[#0088FF]/10 border border-[#0088FF]/30 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                    <div className="truncate text-xs text-slate-300">
+                      Active session: <span className="font-bold text-white">{user.fullName || user.phone || 'Provider'}</span>
+                    </div>
+                  </div>
+                  <Link
+                    href="/app"
+                    className="shrink-0 px-3 py-1 rounded-xl bg-[#0088FF] hover:bg-[#0077EE] text-black font-extrabold text-[11px] flex items-center gap-1 transition-all shadow-md shadow-[#0088FF]/30"
+                  >
+                    <span>Open Dashboard</span>
+                    <ArrowRight className="w-3 h-3" />
+                  </Link>
+                </div>
+              )}
 
               {/* Modern Segmented Tab Switcher (Mobile OTP vs Email) */}
               {currentScreen !== 'otp' && currentScreen !== 'reset' && (
