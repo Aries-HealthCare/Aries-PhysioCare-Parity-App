@@ -19,11 +19,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { OnboardingBackground } from './onboarding-background';
-
-const DynamicOnboardingIcon = dynamic(
-  () => import('./onboarding-3d-icon').then((m) => m.OnboardingIcon),
-  { ssr: false, loading: () => <div className="w-[200px] h-[200px]" /> }
-);
+import { OnboardingIcon } from './onboarding-3d-icon';
 
 interface Slide {
   id: number;
@@ -216,7 +212,7 @@ export function OnboardingFlow() {
                 filter: 'blur(30px)',
               }}
             />
-            <DynamicOnboardingIcon slideIndex={currentSlide as 0 | 1 | 2 | 3} size={190} />
+            <OnboardingIcon slideIndex={currentSlide as 0 | 1 | 2 | 3} size={190} />
           </motion.div>
         </AnimatePresence>
 

@@ -33,17 +33,7 @@ import {
   AnimatePresence,
 } from 'framer-motion';
 import gsap from 'gsap';
-
-// Dynamically load 3D Background on client side only (prevents any SSR hydration exception)
-const DynamicLogin3DBackground = dynamic(
-  () => import('./login-3d-background').then((mod) => mod.Login3DBackground),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="fixed inset-0 bg-[#030712] pointer-events-none" />
-    ),
-  }
-);
+import { Login3DBackground } from './login-3d-background';
 
 type ScreenMode = 'mobile' | 'email' | 'otp' | 'reset';
 
@@ -400,7 +390,7 @@ export function LoginPortal() {
       className="min-h-screen w-full bg-[#030712] text-white flex flex-col justify-between relative overflow-hidden select-none font-sans py-6 px-4 sm:px-6"
     >
       {/* ── Aurora 3D Background ── */}
-      <DynamicLogin3DBackground />
+      <Login3DBackground />
 
       <div className="h-2 sm:h-4" />
 

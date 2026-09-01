@@ -28,10 +28,7 @@ const spaceGrotesk = Space_Grotesk({
 });
 
 export const viewport: Viewport = {
-  themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#ffffff' },
-    { media: '(prefers-color-scheme: dark)', color: '#0f172a' },
-  ],
+  themeColor: '#030712',
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
@@ -66,9 +63,10 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${inter.variable} ${outfit.variable} ${spaceGrotesk.variable}`}
+      className={`dark ${inter.variable} ${outfit.variable} ${spaceGrotesk.variable}`}
+      style={{ backgroundColor: '#030712', colorScheme: 'dark' }}
     >
-      <body className="antialiased min-h-screen bg-background text-foreground flex flex-col selection:bg-teal-500 selection:text-white">
+      <body className="antialiased min-h-screen bg-[#030712] text-foreground flex flex-col selection:bg-teal-500 selection:text-white">
         <ThemeProvider>
           <RequestCallbackProvider>
             <ProviderAuthProvider>
