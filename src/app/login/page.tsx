@@ -22,8 +22,6 @@ import {
   ArrowLeft,
   RefreshCw,
   Fingerprint,
-  Activity,
-  Check,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -100,8 +98,8 @@ export default function ProviderLoginPage() {
     const centerX = rect.width / 2;
     const centerY = rect.height / 2;
 
-    const rX = ((y - centerY) / centerY) * -6; // max 6deg tilt
-    const rY = ((x - centerX) / centerX) * 6;
+    const rX = ((y - centerY) / centerY) * -5;
+    const rY = ((x - centerX) / centerX) * 5;
 
     setRotateX(rX);
     setRotateY(rY);
@@ -141,7 +139,6 @@ export default function ProviderLoginPage() {
       setSuccessMessage(`Verification code sent to ${currentCountry.dialCode} ${cleanMobile}.`);
       setTimeout(() => otpRefs.current[0]?.focus(), 200);
     } catch {
-      // Fallback transition
       setCurrentScreen('otp');
       setResendTimer(30);
       setIsTimerActive(true);
@@ -205,7 +202,7 @@ export default function ProviderLoginPage() {
   const handleEmailSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim() || !password.trim()) {
-      setErrorMessage('Please provide your credentials.');
+      setErrorMessage('Please enter your email and password.');
       return;
     }
 
@@ -253,56 +250,44 @@ export default function ProviderLoginPage() {
   };
 
   return (
-    <div className="min-h-screen w-full bg-[#02050e] text-white flex flex-col justify-between relative overflow-hidden select-none font-sans py-6 px-4 sm:px-6">
-      {/* ── 3D Interactive Three.js WebGL Deep Space & Stars Cosmos ── */}
+    <div className="min-h-screen w-full bg-[#030712] text-white flex flex-col justify-between relative overflow-hidden select-none font-sans py-6 px-4 sm:px-6">
+      {/* ── 3D Interactive Three.js Deep Space & Stars Cosmos Background ── */}
       <Login3DBackground />
 
-      {/* ── Ambient Celestial Glows ── */}
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_70%_50%_at_50%_-10%,rgba(0,136,255,0.15),transparent_70%)] pointer-events-none z-0" />
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_60%_50%_at_50%_110%,rgba(255,215,0,0.08),transparent_70%)] pointer-events-none z-0" />
+      {/* ── Subtle Space Gradient Accents ── */}
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_60%_at_50%_-15%,rgba(14,165,233,0.18),transparent_70%)] pointer-events-none z-0" />
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_70%_50%_at_50%_115%,rgba(245,158,11,0.10),transparent_70%)] pointer-events-none z-0" />
 
-      {/* Spacer when header options are removed */}
+      {/* Spacer for vertical balance */}
       <div className="h-2 sm:h-4" />
 
-      {/* ── Center Stage: 3D Holographic Auth Station ── */}
-      <main className="relative z-10 max-w-md w-full mx-auto my-auto py-4 flex flex-col items-center">
+      {/* ── Center Stage: Modern Auth Station ── */}
+      <main className="relative z-10 max-w-md w-full mx-auto my-auto py-2 flex flex-col items-center">
         
-        {/* ── 3D Animated Hero Emblem & Orbiting Rings ── */}
+        {/* ── Brand Header & Glowing Aries Emblem ── */}
         <motion.div
-          initial={{ opacity: 0, y: -20, scale: 0.9 }}
+          initial={{ opacity: 0, y: -15, scale: 0.95 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
-          className="text-center space-y-3 mb-6 relative"
+          transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
+          className="text-center space-y-3 mb-5 relative"
         >
-          {/* Holographic 3D Floating Ring Container */}
-          <div className="w-24 h-24 sm:w-28 sm:h-28 mx-auto relative flex items-center justify-center">
-            {/* Spinning Outer Ring (Cyan) */}
-            <div 
-              className="absolute inset-0 rounded-full border border-[#0088FF]/50 border-t-transparent border-b-transparent animate-spin"
-              style={{ animationDuration: '8s' }}
-            />
-            {/* Counter-Spinning Inner Ring (Gold) */}
-            <div 
-              className="absolute inset-2 rounded-full border border-[#FFD700]/50 border-r-transparent border-l-transparent animate-spin"
-              style={{ animationDuration: '6s', animationDirection: 'reverse' }}
-            />
-
-            {/* Glowing Center Core with Aries Emblem */}
-            <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full relative p-1 bg-gradient-to-tr from-[#0088FF]/40 via-[#0B1528] to-[#FFD700]/30 border border-[#FFD700]/60 shadow-[0_0_50px_rgba(0,136,255,0.35)] backdrop-blur-xl flex items-center justify-center group">
-              <div className="w-full h-full rounded-full overflow-hidden relative flex items-center justify-center transform transition-transform duration-500 group-hover:scale-110">
+          {/* Glowing Emblem Core */}
+          <div className="w-20 h-20 sm:w-24 sm:h-24 mx-auto relative flex items-center justify-center">
+            <div className="w-full h-full rounded-full p-1 bg-gradient-to-tr from-sky-500/40 via-[#0a1020] to-amber-400/30 border border-amber-400/50 shadow-[0_0_35px_rgba(14,165,233,0.3)] backdrop-blur-xl flex items-center justify-center group">
+              <div className="w-full h-full rounded-full overflow-hidden relative flex items-center justify-center transform transition-transform duration-300 group-hover:scale-105">
                 <Image
                   src="/aries-gold-emblem.png"
                   alt="Aries Gold Emblem"
                   fill
                   sizes="96px"
-                  className="object-contain drop-shadow-[0_0_15px_rgba(255,215,0,0.5)]"
+                  className="object-contain drop-shadow-[0_0_12px_rgba(245,158,11,0.5)]"
                   priority
                 />
               </div>
 
-              {/* Holographic Sparkle Pill */}
-              <div className="absolute -bottom-1 -right-1 p-1.5 rounded-full bg-gradient-to-tr from-[#0088FF] to-[#60a5fa] text-black shadow-lg shadow-[#0088FF]/50 ring-2 ring-[#02050e]">
-                <Sparkles className="w-3.5 h-3.5 text-black fill-black animate-pulse" />
+              {/* Sparkle Badge */}
+              <div className="absolute -bottom-1 -right-1 p-1.5 rounded-full bg-gradient-to-tr from-sky-500 to-blue-600 text-white shadow-lg shadow-sky-500/50 ring-2 ring-[#030712]">
+                <Sparkles className="w-3.5 h-3.5 fill-white text-white" />
               </div>
             </div>
           </div>
@@ -311,14 +296,14 @@ export default function ProviderLoginPage() {
           <div className="space-y-1">
             <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-white font-outfit flex items-center justify-center gap-1.5 drop-shadow-[0_4px_12px_rgba(0,0,0,0.8)]">
               <span>Aries</span>
-              <span className="bg-gradient-to-r from-[#FFD700] via-[#FFE57F] to-[#FFA000] bg-clip-text text-transparent drop-shadow-[0_0_25px_rgba(255,215,0,0.7)]">
+              <span className="bg-gradient-to-r from-amber-300 via-amber-200 to-amber-500 bg-clip-text text-transparent drop-shadow-[0_0_25px_rgba(245,158,11,0.6)]">
                 Xpert
               </span>
             </h1>
             
-            <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-gradient-to-r from-[#0088FF]/15 via-[#0088FF]/10 to-[#FFD700]/10 border border-[#0088FF]/30 shadow-[0_0_20px_rgba(0,136,255,0.2)] backdrop-blur-md">
-              <ShieldCheck className="w-3.5 h-3.5 text-[#0088FF]" />
-              <span className="text-[10px] font-extrabold uppercase tracking-widest text-[#0088FF] font-mono">
+            <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-sky-500/10 border border-sky-500/30 shadow-[0_0_15px_rgba(14,165,233,0.15)] backdrop-blur-md">
+              <ShieldCheck className="w-3.5 h-3.5 text-sky-400" />
+              <span className="text-[10px] font-extrabold uppercase tracking-widest text-sky-400 font-mono">
                 CLINICAL SPECIALIST PORTAL
               </span>
             </div>
@@ -338,25 +323,25 @@ export default function ProviderLoginPage() {
               rotateX: rotateX,
               rotateY: rotateY,
             }}
-            transition={{ type: 'spring', stiffness: 260, damping: 20 }}
+            transition={{ type: 'spring', stiffness: 260, damping: 22 }}
             style={{
               transformStyle: 'preserve-3d',
             }}
-            className="relative w-full rounded-[2rem] p-[1px] bg-gradient-to-b from-[#0088FF]/60 via-white/10 to-[#FFD700]/40 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.9),0_0_50px_rgba(0,136,255,0.15)] group"
+            className="relative w-full rounded-[2rem] p-[1px] bg-gradient-to-b from-sky-500/40 via-white/10 to-amber-400/30 shadow-[0_25px_70px_-15px_rgba(0,0,0,0.95),0_0_50px_rgba(14,165,233,0.15)] group"
           >
-            {/* Dynamic Gloss / Reflection Overlay */}
+            {/* Dynamic Gloss Overlay */}
             <div
-              className="absolute inset-0 rounded-[2rem] pointer-events-none opacity-40 transition-opacity duration-300 group-hover:opacity-75"
+              className="absolute inset-0 rounded-[2rem] pointer-events-none opacity-40 transition-opacity duration-300 group-hover:opacity-70"
               style={{
-                background: `radial-gradient(circle 320px at ${glossX}% ${glossY}%, rgba(255, 255, 255, 0.18), transparent 80%)`,
+                background: `radial-gradient(circle 300px at ${glossX}% ${glossY}%, rgba(255, 255, 255, 0.15), transparent 80%)`,
               }}
             />
 
             {/* Inner Glass Container */}
-            <div className="relative w-full rounded-[1.95rem] bg-[#070E1A]/85 backdrop-blur-2xl p-6 sm:p-8 space-y-6 border border-white/5 overflow-hidden">
-              {/* Subtle Ambient Accent inside card */}
-              <div className="absolute -top-24 -right-24 w-48 h-48 rounded-full bg-[#0088FF]/15 blur-3xl pointer-events-none" />
-              <div className="absolute -bottom-24 -left-24 w-48 h-48 rounded-full bg-[#FFD700]/10 blur-3xl pointer-events-none" />
+            <div className="relative w-full rounded-[1.95rem] bg-[#090e1c]/90 backdrop-blur-2xl p-6 sm:p-8 space-y-6 border border-white/5 overflow-hidden">
+              {/* Subtle Corner Glows inside card */}
+              <div className="absolute -top-24 -right-24 w-48 h-48 rounded-full bg-sky-500/15 blur-3xl pointer-events-none" />
+              <div className="absolute -bottom-24 -left-24 w-48 h-48 rounded-full bg-amber-400/10 blur-3xl pointer-events-none" />
 
               {/* Status Feedback (Animated) */}
               <AnimatePresence mode="wait">
@@ -387,7 +372,7 @@ export default function ProviderLoginPage() {
 
               {/* Active Session Indicator (if already logged in) */}
               {isAuthenticated && user && (
-                <div className="p-3 rounded-2xl bg-[#0088FF]/10 border border-[#0088FF]/30 flex items-center justify-between gap-2">
+                <div className="p-3 rounded-2xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
                     <div className="truncate text-xs text-slate-300">
@@ -396,7 +381,7 @@ export default function ProviderLoginPage() {
                   </div>
                   <Link
                     href="/app"
-                    className="shrink-0 px-3 py-1 rounded-xl bg-[#0088FF] hover:bg-[#0077EE] text-black font-extrabold text-[11px] flex items-center gap-1 transition-all shadow-md shadow-[#0088FF]/30"
+                    className="shrink-0 px-3 py-1 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-extrabold text-[11px] flex items-center gap-1 transition-all shadow-md shadow-sky-500/30"
                   >
                     <span>Open Dashboard</span>
                     <ArrowRight className="w-3 h-3" />
@@ -406,7 +391,7 @@ export default function ProviderLoginPage() {
 
               {/* Modern Segmented Tab Switcher (Mobile OTP vs Email) */}
               {currentScreen !== 'otp' && currentScreen !== 'reset' && (
-                <div className="relative p-1 rounded-2xl bg-black/50 border border-white/10 backdrop-blur-md grid grid-cols-2 gap-1">
+                <div className="relative p-1 rounded-2xl bg-black/60 border border-slate-800 backdrop-blur-md grid grid-cols-2 gap-1">
                   <button
                     type="button"
                     onClick={() => {
@@ -414,13 +399,13 @@ export default function ProviderLoginPage() {
                       setErrorMessage('');
                     }}
                     className={`relative z-10 py-3 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-2 ${
-                      currentScreen === 'mobile' ? 'text-black font-extrabold' : 'text-slate-400 hover:text-white'
+                      currentScreen === 'mobile' ? 'text-white font-extrabold' : 'text-slate-400 hover:text-white'
                     }`}
                   >
                     {currentScreen === 'mobile' && (
                       <motion.div
                         layoutId="activeTabPill"
-                        className="absolute inset-0 bg-gradient-to-r from-[#0088FF] to-[#00b4d8] rounded-xl shadow-[0_0_20px_rgba(0,136,255,0.5)] -z-10"
+                        className="absolute inset-0 bg-gradient-to-r from-sky-500 to-blue-600 rounded-xl shadow-[0_0_20px_rgba(14,165,233,0.5)] -z-10"
                         transition={{ type: 'spring', stiffness: 350, damping: 28 }}
                       />
                     )}
@@ -435,13 +420,13 @@ export default function ProviderLoginPage() {
                       setErrorMessage('');
                     }}
                     className={`relative z-10 py-3 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-2 ${
-                      currentScreen === 'email' ? 'text-black font-extrabold' : 'text-slate-400 hover:text-white'
+                      currentScreen === 'email' ? 'text-white font-extrabold' : 'text-slate-400 hover:text-white'
                     }`}
                   >
                     {currentScreen === 'email' && (
                       <motion.div
                         layoutId="activeTabPill"
-                        className="absolute inset-0 bg-gradient-to-r from-[#0088FF] to-[#00b4d8] rounded-xl shadow-[0_0_20px_rgba(0,136,255,0.5)] -z-10"
+                        className="absolute inset-0 bg-gradient-to-r from-sky-500 to-blue-600 rounded-xl shadow-[0_0_20px_rgba(14,165,233,0.5)] -z-10"
                         transition={{ type: 'spring', stiffness: 350, damping: 28 }}
                       />
                     )}
@@ -466,7 +451,7 @@ export default function ProviderLoginPage() {
                     <div className="space-y-2">
                       <Label className="text-xs font-bold text-slate-300 flex items-center justify-between">
                         <span>Registered Mobile Number</span>
-                        <span className="text-[10px] text-[#0088FF] font-mono">OTP Verified</span>
+                        <span className="text-[10px] text-sky-400 font-mono">OTP Verified</span>
                       </Label>
                       
                       <div className="flex gap-2">
@@ -475,7 +460,7 @@ export default function ProviderLoginPage() {
                             selectedCountry={selectedCountry}
                             onSelectCountry={setSelectedCountry}
                             compact
-                            className="h-12 bg-black/60 border-white/15 focus:border-[#0088FF] text-white"
+                            className="h-12 bg-black/70 border-slate-800 hover:border-slate-700 focus:border-sky-500 text-white"
                           />
                         </div>
                         <div className="relative flex-1">
@@ -485,7 +470,7 @@ export default function ProviderLoginPage() {
                             onChange={(e) => setMobileNumber(e.target.value.replace(/\D/g, ''))}
                             placeholder={currentCountry.phonePlaceholder}
                             maxLength={currentCountry.phoneLength + 2}
-                            className="h-12 bg-black/60 border-white/15 hover:border-white/25 text-white rounded-xl text-xs font-mono tracking-wider focus:border-[#0088FF] focus:ring-2 focus:ring-[#0088FF]/30 transition-all placeholder:text-slate-600"
+                            className="h-12 bg-black/70 border-slate-800 hover:border-slate-700 text-white rounded-xl text-xs font-mono tracking-wider focus:border-sky-500 focus:ring-2 focus:ring-sky-500/30 transition-all placeholder:text-slate-600"
                             required
                           />
                         </div>
@@ -495,7 +480,7 @@ export default function ProviderLoginPage() {
                     <Button
                       type="submit"
                       disabled={isLoading || mobileNumber.length < 7}
-                      className="w-full h-13 rounded-2xl bg-gradient-to-r from-[#0088FF] via-[#00a2ff] to-[#00b4d8] hover:from-[#0077EE] hover:to-[#0096c7] text-black font-black text-xs uppercase tracking-widest shadow-[0_0_30px_rgba(0,136,255,0.45)] flex items-center justify-center gap-2 hover:scale-[1.01] active:scale-[0.98] transition-all disabled:opacity-40 disabled:hover:scale-100"
+                      className="w-full h-13 rounded-2xl bg-gradient-to-r from-sky-500 via-blue-600 to-indigo-600 hover:from-sky-400 hover:to-blue-500 text-white font-black text-xs uppercase tracking-widest shadow-[0_0_30px_rgba(14,165,233,0.4)] flex items-center justify-center gap-2 hover:scale-[1.01] active:scale-[0.98] transition-all disabled:opacity-40 disabled:hover:scale-100"
                     >
                       {isLoading ? (
                         <Loader2 className="w-5 h-5 animate-spin" />
@@ -522,12 +507,12 @@ export default function ProviderLoginPage() {
                   >
                     <div className="text-center space-y-1.5">
                       <div className="text-sm font-bold text-white flex items-center justify-center gap-1.5">
-                        <Fingerprint className="w-4 h-4 text-[#0088FF]" />
+                        <Fingerprint className="w-4 h-4 text-sky-400" />
                         <span>Enter Verification Code</span>
                       </div>
                       <p className="text-xs text-slate-400">
                         Code sent to{' '}
-                        <span className="text-[#0088FF] font-mono font-bold">
+                        <span className="text-sky-400 font-mono font-bold">
                           {currentCountry.dialCode} {mobileNumber}
                         </span>
                       </p>
@@ -547,10 +532,10 @@ export default function ProviderLoginPage() {
                           value={otp[idx]}
                           onChange={(e) => handleOtpChange(idx, e.target.value)}
                           onKeyDown={(e) => handleOtpKeyDown(idx, e)}
-                          className={`w-11 h-13 sm:w-12 sm:h-14 text-center text-lg font-black text-white bg-black/70 border rounded-xl transition-all outline-none ${
+                          className={`w-11 h-13 sm:w-12 sm:h-14 text-center text-lg font-black text-white bg-black/80 border rounded-xl transition-all outline-none ${
                             otp[idx]
-                              ? 'border-[#0088FF] ring-2 ring-[#0088FF]/30 shadow-[0_0_15px_rgba(0,136,255,0.3)]'
-                              : 'border-white/15 focus:border-[#0088FF] focus:ring-2 focus:ring-[#0088FF]/30'
+                              ? 'border-sky-500 ring-2 ring-sky-500/30 shadow-[0_0_15px_rgba(14,165,233,0.3)]'
+                              : 'border-slate-800 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/30'
                           }`}
                         />
                       ))}
@@ -559,7 +544,7 @@ export default function ProviderLoginPage() {
                     <Button
                       type="submit"
                       disabled={isLoading || otp.join('').length < 6}
-                      className="w-full h-13 rounded-2xl bg-gradient-to-r from-[#0088FF] via-[#00a2ff] to-[#00b4d8] hover:from-[#0077EE] hover:to-[#0096c7] text-black font-black text-xs uppercase tracking-widest shadow-[0_0_30px_rgba(0,136,255,0.45)] flex items-center justify-center gap-2 hover:scale-[1.01] active:scale-[0.98] transition-all disabled:opacity-40"
+                      className="w-full h-13 rounded-2xl bg-gradient-to-r from-sky-500 via-blue-600 to-indigo-600 hover:from-sky-400 hover:to-blue-500 text-white font-black text-xs uppercase tracking-widest shadow-[0_0_30px_rgba(14,165,233,0.4)] flex items-center justify-center gap-2 hover:scale-[1.01] active:scale-[0.98] transition-all disabled:opacity-40"
                     >
                       {isLoading ? (
                         <Loader2 className="w-5 h-5 animate-spin" />
@@ -588,7 +573,7 @@ export default function ProviderLoginPage() {
                         <button
                           type="button"
                           onClick={() => handleSendMobileOtp()}
-                          className="text-[#0088FF] hover:underline font-bold text-[11px] flex items-center gap-1"
+                          className="text-sky-400 hover:underline font-bold text-[11px] flex items-center gap-1"
                         >
                           <RefreshCw className="w-3 h-3" /> Resend Code
                         </button>
@@ -617,7 +602,7 @@ export default function ProviderLoginPage() {
                           value={email}
                           onChange={(e) => setEmail(e.target.value)}
                           placeholder="doctor@example.com"
-                          className="pl-10 h-12 bg-black/60 border-white/15 hover:border-white/25 text-white rounded-xl text-xs focus:border-[#0088FF] focus:ring-2 focus:ring-[#0088FF]/30 transition-all placeholder:text-slate-600"
+                          className="pl-10 h-12 bg-black/70 border-slate-800 hover:border-slate-700 text-white rounded-xl text-xs focus:border-sky-500 focus:ring-2 focus:ring-sky-500/30 transition-all placeholder:text-slate-600"
                           required
                         />
                       </div>
@@ -632,7 +617,7 @@ export default function ProviderLoginPage() {
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
                           placeholder="••••••••"
-                          className="pl-10 pr-10 h-12 bg-black/60 border-white/15 hover:border-white/25 text-white rounded-xl text-xs focus:border-[#0088FF] focus:ring-2 focus:ring-[#0088FF]/30 transition-all placeholder:text-slate-600"
+                          className="pl-10 pr-10 h-12 bg-black/70 border-slate-800 hover:border-slate-700 text-white rounded-xl text-xs focus:border-sky-500 focus:ring-2 focus:ring-sky-500/30 transition-all placeholder:text-slate-600"
                           required
                         />
                         <button
@@ -651,7 +636,7 @@ export default function ProviderLoginPage() {
                           type="checkbox"
                           checked={rememberMe}
                           onChange={(e) => setRememberMe(e.target.checked)}
-                          className="rounded border-slate-700 bg-black/60 text-[#0088FF] focus:ring-0"
+                          className="rounded border-slate-700 bg-black/70 text-sky-500 focus:ring-0"
                         />
                         <span className="text-slate-400 text-[11px]">Remember me</span>
                       </label>
@@ -662,7 +647,7 @@ export default function ProviderLoginPage() {
                           setCurrentScreen('reset');
                           setErrorMessage('');
                         }}
-                        className="text-[#0088FF] hover:underline font-semibold text-[11px]"
+                        className="text-sky-400 hover:underline font-semibold text-[11px]"
                       >
                         Forgot Password?
                       </button>
@@ -671,7 +656,7 @@ export default function ProviderLoginPage() {
                     <Button
                       type="submit"
                       disabled={isLoading || !email || !password}
-                      className="w-full h-13 rounded-2xl bg-gradient-to-r from-[#0088FF] via-[#00a2ff] to-[#00b4d8] hover:from-[#0077EE] hover:to-[#0096c7] text-black font-black text-xs uppercase tracking-widest shadow-[0_0_30px_rgba(0,136,255,0.45)] flex items-center justify-center gap-2 hover:scale-[1.01] active:scale-[0.98] transition-all disabled:opacity-40"
+                      className="w-full h-13 rounded-2xl bg-gradient-to-r from-sky-500 via-blue-600 to-indigo-600 hover:from-sky-400 hover:to-blue-500 text-white font-black text-xs uppercase tracking-widest shadow-[0_0_30px_rgba(14,165,233,0.4)] flex items-center justify-center gap-2 hover:scale-[1.01] active:scale-[0.98] transition-all disabled:opacity-40"
                     >
                       {isLoading ? (
                         <Loader2 className="w-5 h-5 animate-spin" />
@@ -710,7 +695,7 @@ export default function ProviderLoginPage() {
                           value={email}
                           onChange={(e) => setEmail(e.target.value)}
                           placeholder="doctor@example.com"
-                          className="pl-10 h-12 bg-black/60 border-white/15 text-white rounded-xl text-xs focus:border-[#0088FF]"
+                          className="pl-10 h-12 bg-black/70 border-slate-800 text-white rounded-xl text-xs focus:border-sky-500"
                           required
                         />
                       </div>
@@ -719,7 +704,7 @@ export default function ProviderLoginPage() {
                     <Button
                       type="submit"
                       disabled={isLoading || !email}
-                      className="w-full h-13 rounded-2xl bg-gradient-to-r from-[#0088FF] via-[#00a2ff] to-[#00b4d8] text-black font-black text-xs uppercase tracking-widest shadow-[0_0_30px_rgba(0,136,255,0.45)] flex items-center justify-center gap-2 hover:scale-[1.01] active:scale-[0.98] transition-all disabled:opacity-40"
+                      className="w-full h-13 rounded-2xl bg-gradient-to-r from-sky-500 via-blue-600 to-indigo-600 text-white font-black text-xs uppercase tracking-widest shadow-[0_0_30px_rgba(14,165,233,0.4)] flex items-center justify-center gap-2 hover:scale-[1.01] active:scale-[0.98] transition-all disabled:opacity-40"
                     >
                       {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <span>SEND RESET LINK</span>}
                     </Button>
@@ -740,7 +725,7 @@ export default function ProviderLoginPage() {
           </motion.div>
         </div>
 
-        {/* ── Register & Start Onboarding CTA (3D glowing button style) ── */}
+        {/* ── Register & Start Onboarding CTA ── */}
         <motion.div
           initial={{ opacity: 0, y: 15 }}
           animate={{ opacity: 1, y: 0 }}
@@ -753,9 +738,9 @@ export default function ProviderLoginPage() {
           
           <Link
             href="/onboarding"
-            className="group relative inline-flex items-center justify-center gap-2 px-8 py-3.5 rounded-full bg-gradient-to-r from-white/5 via-[#FFD700]/10 to-white/5 border border-[#FFD700]/40 hover:border-[#FFD700] text-[#FFD700] hover:text-white text-xs font-black tracking-wider transition-all duration-300 shadow-[0_0_25px_rgba(255,215,0,0.15)] hover:shadow-[0_0_35px_rgba(255,215,0,0.35)] hover:scale-[1.02] backdrop-blur-xl"
+            className="group relative inline-flex items-center justify-center gap-2 px-8 py-3.5 rounded-full bg-gradient-to-r from-white/5 via-amber-400/10 to-white/5 border border-amber-400/40 hover:border-amber-300 text-amber-300 hover:text-white text-xs font-black tracking-wider transition-all duration-300 shadow-[0_0_25px_rgba(245,158,11,0.15)] hover:shadow-[0_0_35px_rgba(245,158,11,0.35)] hover:scale-[1.02] backdrop-blur-xl"
           >
-            <Sparkles className="w-3.5 h-3.5 text-[#FFD700] group-hover:rotate-12 transition-transform" />
+            <Sparkles className="w-3.5 h-3.5 text-amber-300 group-hover:rotate-12 transition-transform" />
             <span>JOIN AS A HEALTHCARE PROVIDER</span>
             <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
           </Link>
