@@ -16,6 +16,7 @@ import {
   ArrowRight,
   ChevronLeft,
   X,
+  Sparkles,
 } from 'lucide-react';
 import { OnboardingBackground } from './onboarding-background';
 
@@ -39,66 +40,74 @@ const SLIDES: Slide[] = [
   {
     id: 0,
     title: 'Welcome to Aries Xpert',
-    subtitle: 'Your Clinical Command Centre',
-    body: 'A premium physiotherapy management platform designed for specialists who demand excellence. Streamline every touchpoint of patient care.',
-    icon: <Activity className="w-5 h-5" />,
+    subtitle: 'Clinical Command Centre',
+    body: 'A next-generation physiotherapy management ecosystem designed for specialists who demand precision, elegance, and uncompromised patient outcomes.',
+    icon: <Activity className="w-4 h-4" />,
     accentColor: '#0d9488',
-    glowColor: 'rgba(13,148,136,0.45)',
-    borderGradient: 'linear-gradient(135deg, rgba(13,148,136,0.6), rgba(88,28,235,0.3), transparent)',
+    glowColor: 'rgba(13,148,136,0.5)',
+    borderGradient: 'linear-gradient(135deg, rgba(13,148,136,0.7), rgba(124,58,237,0.35), transparent)',
   },
   {
     id: 1,
     title: 'AI-Powered Insights',
-    subtitle: 'Smart Analytics & Diagnostics',
-    body: 'Harness machine learning to predict treatment outcomes, identify at-risk patients, and surface actionable clinical intelligence — all in real-time.',
-    icon: <Brain className="w-5 h-5" />,
+    subtitle: 'Smart Diagnostics & Telehealth',
+    body: 'Harness clinical machine learning to track recovery curves, detect biomechanical regressions early, and surface real-time actionable recommendations.',
+    icon: <Brain className="w-4 h-4" />,
     accentColor: '#0284c7',
-    glowColor: 'rgba(2,132,199,0.45)',
-    borderGradient: 'linear-gradient(135deg, rgba(2,132,199,0.6), rgba(88,28,235,0.3), transparent)',
+    glowColor: 'rgba(2,132,199,0.5)',
+    borderGradient: 'linear-gradient(135deg, rgba(2,132,199,0.7), rgba(124,58,237,0.35), transparent)',
   },
   {
     id: 2,
-    title: 'Seamless Appointments',
-    subtitle: 'Book, Manage & Follow Up',
-    body: 'End-to-end appointment lifecycle management. Smart scheduling, automated reminders, and post-session follow-ups — all unified in one place.',
-    icon: <CalendarCheck className="w-5 h-5" />,
+    title: 'Seamless Care Delivery',
+    subtitle: 'Appointments, SOAP & Billing',
+    body: 'Manage end-to-end patient visits with one-touch SOAP notes, smart scheduling, automated reminders, and instant digital payout settlements.',
+    icon: <CalendarCheck className="w-4 h-4" />,
     accentColor: '#7c3aed',
-    glowColor: 'rgba(124,58,237,0.45)',
-    borderGradient: 'linear-gradient(135deg, rgba(124,58,237,0.6), rgba(190,24,93,0.3), transparent)',
+    glowColor: 'rgba(124,58,237,0.5)',
+    borderGradient: 'linear-gradient(135deg, rgba(124,58,237,0.7), rgba(236,72,153,0.35), transparent)',
   },
   {
     id: 3,
-    title: 'Your Care Team',
-    subtitle: 'Collaborate & Grow Together',
-    body: 'Connect with specialists, share case notes, and monitor outcomes across your multidisciplinary team. Better care starts with better collaboration.',
-    icon: <Users className="w-5 h-5" />,
+    title: 'Collaborative Care Team',
+    subtitle: 'Network & Multidisciplinary Growth',
+    body: 'Connect with orthopaedic surgeons, sports physicians, and allied health professionals. Share clinical case notes and scale your independent practice.',
+    icon: <Users className="w-4 h-4" />,
     accentColor: '#f59e0b',
-    glowColor: 'rgba(245,158,11,0.45)',
-    borderGradient: 'linear-gradient(135deg, rgba(245,158,11,0.5), rgba(190,24,93,0.3), transparent)',
+    glowColor: 'rgba(245,158,11,0.5)',
+    borderGradient: 'linear-gradient(135deg, rgba(245,158,11,0.7), rgba(13,148,136,0.35), transparent)',
   },
 ];
 
 const SLIDE_COUNT = SLIDES.length;
-const DRAG_THRESHOLD = 55;
+const DRAG_THRESHOLD = 50;
 
-// ── Deep Space depth-zoom slide variants ──
-const depthVariants = {
+// Directional slide variants
+const slideVariants = {
   enter: (dir: 1 | -1) => ({
-    scale: dir === 1 ? 1.08 : 0.88,
+    x: dir * 70,
     opacity: 0,
-    filter: 'blur(4px)',
+    scale: 0.94,
   }),
   center: {
-    scale: 1,
+    x: 0,
     opacity: 1,
-    filter: 'blur(0px)',
-    transition: { type: 'spring', stiffness: 260, damping: 26, mass: 0.8 },
+    scale: 1,
+    transition: {
+      type: 'spring',
+      stiffness: 280,
+      damping: 26,
+      mass: 0.8,
+    },
   },
   exit: (dir: 1 | -1) => ({
-    scale: dir === 1 ? 0.88 : 1.08,
+    x: -dir * 70,
     opacity: 0,
-    filter: 'blur(4px)',
-    transition: { duration: 0.22, ease: [0.4, 0, 1, 1] },
+    scale: 0.94,
+    transition: {
+      duration: 0.22,
+      ease: [0.4, 0, 1, 1],
+    },
   }),
 };
 
@@ -119,12 +128,17 @@ export function OnboardingFlow() {
   );
 
   const completeOnboarding = () => {
-    try { localStorage.setItem('onboarding_complete', 'true'); } catch (_) {}
+    try {
+      localStorage.setItem('onboarding_complete', 'true');
+    } catch (_) {}
     router.push('/');
   };
 
   const skip = () => completeOnboarding();
-  const next = () => currentSlide < SLIDE_COUNT - 1 ? goToSlide(currentSlide + 1, 1) : completeOnboarding();
+  const next = () =>
+    currentSlide < SLIDE_COUNT - 1
+      ? goToSlide(currentSlide + 1, 1)
+      : completeOnboarding();
   const prev = () => goToSlide(currentSlide - 1, -1);
 
   const handleDragEnd = (_: any, info: { offset: { x: number } }) => {
@@ -137,60 +151,76 @@ export function OnboardingFlow() {
 
   return (
     <div
-      className="relative min-h-screen w-full overflow-hidden flex flex-col items-center justify-center select-none"
-      style={{ background: '#030408' }}
+      className="relative min-h-screen w-full overflow-hidden flex flex-col items-center justify-between select-none py-6 px-4 sm:px-6"
+      style={{ background: '#030712' }}
     >
       <OnboardingBackground progress={progress} slideCount={SLIDE_COUNT} />
 
-      {/* Skip */}
-      <motion.button
-        initial={{ opacity: 0, y: -10 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.4 }}
-        onClick={skip}
-        className="absolute top-5 right-5 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 text-slate-400 hover:text-white hover:bg-white/10 transition-all text-xs font-semibold backdrop-blur-md"
-      >
-        <X className="w-3 h-3" /><span>Skip</span>
-      </motion.button>
+      {/* ── Header: Brand & Skip Button ── */}
+      <div className="relative z-20 w-full max-w-lg flex items-center justify-between">
+        {/* Brand */}
+        <motion.div
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.5, ease: 'easeOut' }}
+          className="flex items-center gap-2.5"
+        >
+          <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-teal-500 to-emerald-400 flex items-center justify-center shadow-lg shadow-teal-500/40">
+            <Sparkles className="w-4 h-4 text-slate-950 fill-slate-950" />
+          </div>
+          <div>
+            <span className="text-white font-extrabold text-sm tracking-tight">
+              Aries <span className="text-teal-400 font-black">Xpert</span>
+            </span>
+          </div>
+        </motion.div>
 
-      {/* Logo */}
-      <motion.div
-        initial={{ opacity: 0, x: -20 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ delay: 0.25 }}
-        className="absolute top-5 left-5 z-20 flex items-center gap-2"
-      >
-        <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-violet-600 to-indigo-500 flex items-center justify-center shadow-lg shadow-violet-500/40">
-          <span className="text-white font-black text-sm">A</span>
-        </div>
-        <span className="text-white font-bold text-sm tracking-tight">
-          Aries <span className="text-violet-400">Xpert</span>
-        </span>
-      </motion.div>
+        {/* Skip button */}
+        <motion.button
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.5, ease: 'easeOut' }}
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={skip}
+          className="flex items-center gap-1 px-3.5 py-1.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 text-slate-400 hover:text-white transition-colors text-xs font-semibold backdrop-blur-md"
+        >
+          <span>Skip</span>
+          <X className="w-3 h-3" />
+        </motion.button>
+      </div>
 
-      {/* Main content */}
-      <div className="relative z-10 w-full max-w-sm sm:max-w-md px-4 sm:px-6 flex flex-col items-center gap-6">
-
-        {/* 3D Icon — fades between slides */}
+      {/* ── Main Content Area ── */}
+      <div className="relative z-10 w-full max-w-sm sm:max-w-md my-auto flex flex-col items-center gap-6">
+        {/* 3D Micro-Scene Icon */}
         <AnimatePresence mode="wait">
           <motion.div
             key={`icon-${currentSlide}`}
-            initial={{ opacity: 0, scale: 0.75, y: 16 }}
-            animate={{ opacity: 1, scale: 1, y: 0, transition: { type: 'spring', stiffness: 300, damping: 22, delay: 0.04 } }}
-            exit={{ opacity: 0, scale: 0.7, y: -16, transition: { duration: 0.18 } }}
+            initial={{ opacity: 0, scale: 0.8, y: 15 }}
+            animate={{
+              opacity: 1,
+              scale: 1,
+              y: 0,
+              transition: { type: 'spring', stiffness: 300, damping: 22, delay: 0.05 },
+            }}
+            exit={{ opacity: 0, scale: 0.75, y: -15, transition: { duration: 0.18 } }}
             className="relative flex items-center justify-center"
           >
-            {/* Nebula glow ring */}
-            <div className="absolute rounded-full transition-all duration-700" style={{
-              width: 220, height: 220,
-              background: `radial-gradient(circle, ${slide.glowColor} 0%, transparent 65%)`,
-              filter: 'blur(28px)',
-            }} />
-            <DynamicOnboardingIcon slideIndex={currentSlide as 0 | 1 | 2 | 3} size={200} />
+            {/* Pulsing Aurora Aura */}
+            <div
+              className="absolute rounded-full transition-all duration-700"
+              style={{
+                width: 210,
+                height: 210,
+                background: `radial-gradient(circle, ${slide.glowColor} 0%, transparent 65%)`,
+                filter: 'blur(30px)',
+              }}
+            />
+            <DynamicOnboardingIcon slideIndex={currentSlide as 0 | 1 | 2 | 3} size={190} />
           </motion.div>
         </AnimatePresence>
 
-        {/* Slide card — depth zoom transition */}
+        {/* Slide Card with Gesture Drag */}
         <motion.div
           drag="x"
           dragConstraints={{ left: 0, right: 0 }}
@@ -202,7 +232,7 @@ export function OnboardingFlow() {
             <motion.div
               key={currentSlide}
               custom={direction}
-              variants={depthVariants}
+              variants={slideVariants}
               initial="enter"
               animate="center"
               exit="exit"
@@ -212,22 +242,24 @@ export function OnboardingFlow() {
                 className="relative w-full rounded-3xl p-[1px] overflow-hidden"
                 style={{
                   background: slide.borderGradient,
-                  boxShadow: `0 24px 64px -16px ${slide.glowColor}, 0 0 0 1px rgba(255,255,255,0.04)`,
+                  boxShadow: `0 24px 64px -16px ${slide.glowColor}, 0 0 0 1px rgba(255,255,255,0.05)`,
                 }}
               >
-                <div className="relative w-full rounded-[calc(1.5rem-1px)] bg-[#070b18]/92 backdrop-blur-2xl p-6 sm:p-8 overflow-hidden">
-                  {/* Corner nebula glow */}
-                  <div className="absolute -top-14 -right-14 w-32 h-32 rounded-full opacity-25 pointer-events-none"
-                    style={{ background: slide.accentColor, filter: 'blur(36px)' }} />
+                <div className="relative w-full rounded-[calc(1.5rem-1px)] bg-[#090e1c]/93 backdrop-blur-2xl p-6 sm:p-7 overflow-hidden">
+                  {/* Subtle Aurora Glow Blob inside card */}
+                  <div
+                    className="absolute -top-16 -right-16 w-36 h-36 rounded-full opacity-30 pointer-events-none"
+                    style={{ background: slide.accentColor, filter: 'blur(40px)' }}
+                  />
 
-                  {/* Subtitle badge */}
+                  {/* Subtitle Badge */}
                   <motion.div
                     initial={{ opacity: 0, scale: 0.9 }}
                     animate={{ opacity: 1, scale: 1 }}
                     transition={{ delay: 0.08 }}
-                    className="inline-flex items-center gap-2 px-3 py-1 rounded-full border text-[11px] font-bold uppercase tracking-widest mb-4"
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-[11px] font-bold uppercase tracking-wider mb-3.5"
                     style={{
-                      borderColor: `${slide.accentColor}50`,
+                      borderColor: `${slide.accentColor}40`,
                       color: slide.accentColor,
                       background: `${slide.accentColor}15`,
                     }}
@@ -236,20 +268,22 @@ export function OnboardingFlow() {
                     <span>{slide.subtitle}</span>
                   </motion.div>
 
+                  {/* Title */}
                   <motion.h2
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.13 }}
-                    className="text-2xl sm:text-3xl font-black text-white leading-tight mb-3"
+                    transition={{ delay: 0.12 }}
+                    className="text-2xl sm:text-3xl font-black text-white leading-tight mb-2.5 tracking-tight"
                   >
                     {slide.title}
                   </motion.h2>
 
+                  {/* Description Body */}
                   <motion.p
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.18 }}
-                    className="text-slate-400 text-sm leading-relaxed"
+                    transition={{ delay: 0.16 }}
+                    className="text-slate-300/90 text-xs sm:text-sm leading-relaxed"
                   >
                     {slide.body}
                   </motion.p>
@@ -259,80 +293,59 @@ export function OnboardingFlow() {
           </AnimatePresence>
         </motion.div>
 
-        {/* ── Constellation progress indicator ── */}
-        <div className="flex items-center gap-0">
-          {SLIDES.map((s, i) => (
-            <React.Fragment key={i}>
-              {/* Dot */}
+        {/* ── Morphing Pill Progress Dots ── */}
+        <div className="flex items-center gap-2">
+          {SLIDES.map((s, i) => {
+            const isActive = i === currentSlide;
+            return (
               <motion.button
+                key={i}
+                type="button"
                 onClick={() => goToSlide(i, i > currentSlide ? 1 : -1)}
+                aria-label={`Go to slide ${i + 1}`}
                 animate={{
-                  scale: i === currentSlide ? 1.4 : 1,
-                  opacity: i <= currentSlide ? 1 : 0.3,
+                  width: isActive ? 28 : 8,
+                  opacity: isActive ? 1 : 0.35,
                 }}
-                transition={{ type: 'spring', stiffness: 400, damping: 22 }}
-                className="w-2 h-2 rounded-full relative"
+                transition={{ type: 'spring', stiffness: 350, damping: 25 }}
+                className="h-2 rounded-full cursor-pointer transition-colors"
                 style={{
-                  background: i === currentSlide ? slide.accentColor : '#475569',
-                  boxShadow: i === currentSlide ? `0 0 8px 3px ${slide.glowColor}` : 'none',
+                  background: isActive ? slide.accentColor : '#64748b',
+                  boxShadow: isActive ? `0 0 12px 2px ${slide.glowColor}` : 'none',
                 }}
               />
-              {/* Connecting line between dots */}
-              {i < SLIDE_COUNT - 1 && (
-                <div className="w-8 h-px relative overflow-hidden mx-1">
-                  <div className="absolute inset-0 bg-slate-700/50" />
-                  <motion.div
-                    className="absolute inset-y-0 left-0"
-                    animate={{ width: i < currentSlide ? '100%' : '0%' }}
-                    transition={{ duration: 0.4, ease: 'easeOut' }}
-                    style={{ background: slide.accentColor }}
-                  />
-                </div>
-              )}
-            </React.Fragment>
-          ))}
+            );
+          })}
         </div>
-
-        {/* Navigation */}
-        <div className="w-full flex items-center justify-between gap-3">
-          <motion.button
-            whileTap={{ scale: 0.94 }}
-            onClick={prev}
-            disabled={currentSlide === 0}
-            className="flex items-center gap-1.5 px-4 py-2.5 rounded-2xl bg-white/5 border border-white/10 text-slate-400 hover:text-white hover:bg-white/10 transition-all text-sm font-semibold disabled:opacity-25 disabled:pointer-events-none"
-          >
-            <ChevronLeft className="w-4 h-4" /><span>Back</span>
-          </motion.button>
-
-          <motion.button
-            whileHover={{ scale: 1.03 }}
-            whileTap={{ scale: 0.96 }}
-            onClick={next}
-            className="flex-1 flex items-center justify-center gap-2 px-6 py-3 rounded-2xl font-extrabold text-sm text-white transition-all"
-            style={{
-              background: `linear-gradient(135deg, ${slide.accentColor}cc, ${slide.accentColor}88)`,
-              boxShadow: `0 8px 28px -6px ${slide.glowColor}`,
-            }}
-          >
-            <span>{isLast ? '🚀 Get Started' : 'Continue'}</span>
-            {!isLast && <ArrowRight className="w-4 h-4" />}
-          </motion.button>
-        </div>
-
-        {/* Swipe hint */}
-        <motion.p
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 0.35 }}
-          transition={{ delay: 1.8 }}
-          className="text-slate-500 text-[11px] text-center"
-        >
-          Swipe left or right to navigate
-        </motion.p>
       </div>
 
-      {/* Slide counter */}
-      <div className="absolute bottom-7 right-5 z-20 text-[11px] font-mono text-slate-600">
-        {String(currentSlide + 1).padStart(2, '0')} / {String(SLIDE_COUNT).padStart(2, '0')}
+      {/* ── Footer Navigation Actions ── */}
+      <div className="relative z-20 w-full max-w-sm sm:max-w-md flex items-center justify-between gap-3">
+        {/* Back Button */}
+        <motion.button
+          whileTap={{ scale: 0.94 }}
+          onClick={prev}
+          disabled={currentSlide === 0}
+          className="flex items-center gap-1.5 px-4 py-3 rounded-2xl bg-white/5 border border-white/10 text-slate-300 hover:text-white hover:bg-white/10 transition-all text-xs font-bold disabled:opacity-20 disabled:pointer-events-none"
+        >
+          <ChevronLeft className="w-4 h-4" />
+          <span>Back</span>
+        </motion.button>
+
+        {/* Continue / Get Started CTA */}
+        <motion.button
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.96 }}
+          onClick={next}
+          className="flex-1 flex items-center justify-center gap-2 px-6 py-3 rounded-2xl font-extrabold text-sm text-white transition-all shadow-lg cursor-pointer"
+          style={{
+            background: `linear-gradient(135deg, ${slide.accentColor}, ${slide.accentColor}cc)`,
+            boxShadow: `0 8px 25px -4px ${slide.glowColor}`,
+          }}
+        >
+          <span>{isLast ? 'Enter Aries Xpert' : 'Continue'}</span>
+          <ArrowRight className="w-4 h-4" />
+        </motion.button>
       </div>
     </div>
   );

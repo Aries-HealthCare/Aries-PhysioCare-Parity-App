@@ -31,8 +31,6 @@ import { CountrySelector, COUNTRIES_CONFIG } from '@/components/country-selector
 import {
   motion,
   AnimatePresence,
-  useMotionTemplate,
-  useSpring,
 } from 'framer-motion';
 import gsap from 'gsap';
 
@@ -159,7 +157,6 @@ export function LoginPortal() {
   // GSAP refs
   const logoRef = useRef<HTMLDivElement>(null);
   const shineRef = useRef<HTMLDivElement>(null);
-  const btnRef = useRef<HTMLButtonElement>(null);
 
   const currentCountry = COUNTRIES_CONFIG[selectedCountry] || COUNTRIES_CONFIG['India'];
 
@@ -238,10 +235,10 @@ export function LoginPortal() {
     }
   };
 
-  // ── GSAP Input Focus Glow ──
+  // ── GSAP Input Focus Glow (Aurora Teal) ──
   const handleInputFocus = (e: React.FocusEvent<HTMLInputElement>) => {
     gsap.to(e.currentTarget, {
-      boxShadow: '0 0 0 2px rgba(124,58,237,0.5), 0 0 20px rgba(124,58,237,0.25)',
+      boxShadow: '0 0 0 2px rgba(13,148,136,0.5), 0 0 20px rgba(13,148,136,0.25)',
       duration: 0.3,
       ease: 'power2.out',
     });
@@ -399,7 +396,9 @@ export function LoginPortal() {
   };
 
   return (
-    <div className="min-h-screen w-full text-white flex flex-col justify-between relative overflow-hidden select-none font-sans py-6 px-4 sm:px-6" style={{ background: '#030408' }}>
+    <div
+      className="min-h-screen w-full bg-[#030712] text-white flex flex-col justify-between relative overflow-hidden select-none font-sans py-6 px-4 sm:px-6"
+    >
       {/* ── Aurora 3D Background ── */}
       <DynamicLogin3DBackground />
 
@@ -422,7 +421,7 @@ export function LoginPortal() {
             className="w-20 h-20 sm:w-24 sm:h-24 mx-auto relative flex items-center justify-center"
             ref={logoRef}
           >
-            <div className="w-full h-full rounded-full p-1 bg-gradient-to-tr from-violet-600/40 via-[#0a0818] to-indigo-400/30 border border-violet-500/40 shadow-[0_0_40px_rgba(124,58,237,0.4)] backdrop-blur-xl flex items-center justify-center group overflow-hidden">
+            <div className="w-full h-full rounded-full p-1 bg-gradient-to-tr from-teal-500/40 via-[#0a1020] to-amber-400/30 border border-teal-500/40 shadow-[0_0_40px_rgba(13,148,136,0.35)] backdrop-blur-xl flex items-center justify-center group overflow-hidden">
               <div className="w-full h-full rounded-full overflow-hidden relative flex items-center justify-center transform transition-transform duration-300 group-hover:scale-105">
                 <Image
                   src="/aries-gold-emblem.png"
@@ -444,7 +443,7 @@ export function LoginPortal() {
               </div>
 
               {/* Sparkle Badge */}
-              <div className="absolute -bottom-1 -right-1 p-1.5 rounded-full bg-gradient-to-tr from-violet-600 to-indigo-500 text-white shadow-lg shadow-violet-500/50 ring-2 ring-[#030408]">
+              <div className="absolute -bottom-1 -right-1 p-1.5 rounded-full bg-gradient-to-tr from-teal-500 to-emerald-500 text-white shadow-lg shadow-teal-500/50 ring-2 ring-[#030712]">
                 <Sparkles className="w-3.5 h-3.5 fill-white text-white" />
               </div>
             </div>
@@ -468,10 +467,10 @@ export function LoginPortal() {
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ delay: 0.45 }}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-violet-500/10 border border-violet-500/30 shadow-[0_0_15px_rgba(124,58,237,0.18)] backdrop-blur-md"
+              className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-teal-500/10 border border-teal-500/30 shadow-[0_0_15px_rgba(13,148,136,0.15)] backdrop-blur-md"
             >
-              <ShieldCheck className="w-3.5 h-3.5 text-violet-400" />
-              <span className="text-[10px] font-extrabold uppercase tracking-widest text-violet-400 font-mono">
+              <ShieldCheck className="w-3.5 h-3.5 text-teal-400" />
+              <span className="text-[10px] font-extrabold uppercase tracking-widest text-teal-400 font-mono">
                 CLINICAL SPECIALIST PORTAL
               </span>
             </motion.div>
@@ -494,7 +493,7 @@ export function LoginPortal() {
               transition: 'transform 0.15s ease-out',
               transformStyle: 'preserve-3d',
             }}
-            className="relative w-full rounded-[2rem] p-[1px] bg-gradient-to-b from-violet-500/40 via-white/8 to-indigo-400/20 shadow-[0_25px_70px_-15px_rgba(0,0,0,0.98),0_0_60px_rgba(124,58,237,0.18)] group"
+            className="relative w-full rounded-[2rem] p-[1px] bg-gradient-to-b from-teal-500/40 via-white/10 to-amber-400/30 shadow-[0_25px_70px_-15px_rgba(0,0,0,0.95),0_0_50px_rgba(13,148,136,0.15)] group"
           >
             {/* Dynamic Gloss Overlay */}
             <div
@@ -506,10 +505,10 @@ export function LoginPortal() {
             />
 
             {/* Inner Glass Container */}
-            <div className="relative w-full rounded-[1.95rem] bg-[#07091a]/93 backdrop-blur-2xl p-6 sm:p-8 space-y-6 border border-white/5 overflow-hidden">
+            <div className="relative w-full rounded-[1.95rem] bg-[#090e1c]/92 backdrop-blur-2xl p-6 sm:p-8 space-y-6 border border-white/5 overflow-hidden">
               {/* Subtle corner glows inside card */}
-              <div className="absolute -top-24 -right-24 w-48 h-48 rounded-full bg-violet-500/15 blur-3xl pointer-events-none" />
-              <div className="absolute -bottom-24 -left-24 w-48 h-48 rounded-full bg-indigo-400/10 blur-3xl pointer-events-none" />
+              <div className="absolute -top-24 -right-24 w-48 h-48 rounded-full bg-teal-500/15 blur-3xl pointer-events-none" />
+              <div className="absolute -bottom-24 -left-24 w-48 h-48 rounded-full bg-violet-400/10 blur-3xl pointer-events-none" />
 
               {/* Status Feedback */}
               <AnimatePresence mode="wait">
@@ -557,7 +556,7 @@ export function LoginPortal() {
                   </div>
                   <Link
                     href="/app"
-                    className="shrink-0 px-3 py-1 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-extrabold text-[11px] flex items-center gap-1 transition-all shadow-md shadow-violet-500/30"
+                    className="shrink-0 px-3 py-1 rounded-xl bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-400 hover:to-emerald-500 text-white font-extrabold text-[11px] flex items-center gap-1 transition-all shadow-md shadow-teal-500/30"
                   >
                     <span>Open Dashboard</span>
                     <ArrowRight className="w-3 h-3" />
@@ -584,7 +583,7 @@ export function LoginPortal() {
                       <button
                         type="button"
                         onClick={() => navigateTo('mobile')}
-                        className="py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-[0_0_20px_rgba(124,58,237,0.5)]"
+                        className="py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all bg-gradient-to-r from-teal-500 to-emerald-600 text-white shadow-[0_0_20px_rgba(13,148,136,0.5)]"
                       >
                         <Smartphone className="w-3.5 h-3.5" />
                         <span>Phone OTP</span>
@@ -607,7 +606,7 @@ export function LoginPortal() {
                             selectedCountry={selectedCountry}
                             onSelectCountry={setSelectedCountry}
                             compact
-                            className="h-12 w-[110px] bg-slate-950/80 border-white/10 hover:border-violet-500/50 rounded-2xl text-white font-mono"
+                            className="h-12 w-[110px] bg-slate-950/80 border-white/10 hover:border-teal-500/50 rounded-2xl text-white font-mono"
                           />
                           <div className="relative flex-1">
                             <Input
@@ -620,7 +619,7 @@ export function LoginPortal() {
                               }}
                               onFocus={handleInputFocus}
                               onBlur={handleInputBlur}
-                              className="h-12 bg-slate-950/70 border-white/10 hover:border-violet-500/50 focus:border-violet-400 text-white placeholder:text-slate-500 rounded-2xl font-mono text-sm tracking-wider font-semibold shadow-inner transition-colors"
+                              className="h-12 bg-slate-950/70 border-white/10 hover:border-teal-500/50 focus:border-teal-400 text-white placeholder:text-slate-500 rounded-2xl font-mono text-sm tracking-wider font-semibold shadow-inner transition-colors"
                               required
                               autoFocus
                             />
@@ -634,7 +633,7 @@ export function LoginPortal() {
                             type="checkbox"
                             checked={rememberMe}
                             onChange={(e) => setRememberMe(e.target.checked)}
-                            className="w-4 h-4 rounded-md border-white/20 bg-slate-950 text-violet-500 focus:ring-violet-500/40"
+                            className="w-4 h-4 rounded-md border-white/20 bg-slate-950 text-teal-500 focus:ring-teal-500/40"
                           />
                           <span>Remember on this device</span>
                         </label>
@@ -644,7 +643,7 @@ export function LoginPortal() {
                         <Button
                           type="submit"
                           disabled={isLoading}
-                          className="w-full h-12 rounded-2xl bg-gradient-to-r from-violet-600 via-indigo-500 to-violet-600 hover:from-violet-500 hover:to-indigo-400 text-white font-extrabold text-sm tracking-wide shadow-lg shadow-violet-600/28 transition-all disabled:opacity-50"
+                          className="w-full h-12 rounded-2xl bg-gradient-to-r from-teal-500 via-emerald-500 to-teal-600 hover:from-teal-400 hover:to-emerald-500 text-white font-extrabold text-sm tracking-wide shadow-lg shadow-teal-500/30 hover:shadow-teal-500/50 transition-all disabled:opacity-50"
                         >
                           {isLoading ? (
                             <div className="flex items-center gap-2">
@@ -678,7 +677,7 @@ export function LoginPortal() {
                       <button
                         type="button"
                         onClick={() => navigateTo('mobile')}
-                        className="inline-flex items-center gap-1.5 text-xs text-violet-400 hover:text-violet-300 font-semibold"
+                        className="inline-flex items-center gap-1.5 text-xs text-teal-400 hover:text-teal-300 font-semibold"
                       >
                         <ArrowLeft className="w-3.5 h-3.5" />
                         <span>Change Number</span>
@@ -715,7 +714,7 @@ export function LoginPortal() {
                                 onPaste={idx === 0 ? handleOtpPaste : undefined}
                                 onFocus={handleInputFocus}
                                 onBlur={handleInputBlur}
-                                className="w-11 h-14 text-center text-xl font-black font-mono rounded-2xl bg-slate-950/80 border border-white/10 hover:border-violet-500/50 focus:border-violet-400 text-white outline-none transition-colors shadow-inner"
+                                className="w-11 h-14 text-center text-xl font-black font-mono rounded-2xl bg-slate-950/80 border border-white/10 hover:border-teal-500/50 focus:border-teal-400 text-white outline-none transition-colors shadow-inner"
                               />
                             </motion.div>
                           ))}
@@ -726,7 +725,7 @@ export function LoginPortal() {
                       <div className="flex items-center justify-center text-xs">
                         {isTimerActive ? (
                           <div className="flex items-center gap-1.5 text-slate-400 font-mono">
-                            <RefreshCw className="w-3 h-3 animate-spin text-violet-400" />
+                            <RefreshCw className="w-3 h-3 animate-spin text-teal-400" />
                             <span>Resend OTP in 0:{resendTimer < 10 ? `0${resendTimer}` : resendTimer}s</span>
                           </div>
                         ) : (
@@ -734,7 +733,7 @@ export function LoginPortal() {
                             type="button"
                             onClick={() => handleSendOtp()}
                             disabled={isLoading}
-                            className="text-violet-400 hover:text-violet-300 font-bold underline underline-offset-4 decoration-violet-500/40 hover:decoration-violet-400"
+                            className="text-teal-400 hover:text-teal-300 font-bold underline underline-offset-4 decoration-teal-500/40 hover:decoration-teal-400"
                           >
                             Didn't receive code? Resend OTP
                           </button>
@@ -745,7 +744,7 @@ export function LoginPortal() {
                         <Button
                           type="submit"
                           disabled={isLoading || otp.join('').length !== 6}
-                          className="w-full h-12 rounded-2xl bg-gradient-to-r from-violet-600 via-indigo-500 to-violet-600 hover:from-violet-500 hover:to-indigo-400 text-white font-extrabold text-sm tracking-wide shadow-lg shadow-violet-600/28 transition-all disabled:opacity-50"
+                          className="w-full h-12 rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-600 hover:from-emerald-400 hover:to-cyan-500 text-white font-extrabold text-sm tracking-wide shadow-lg shadow-emerald-500/25 transition-all disabled:opacity-50"
                         >
                           {isLoading ? (
                             <div className="flex items-center gap-2">
@@ -788,7 +787,7 @@ export function LoginPortal() {
                       <button
                         type="button"
                         onClick={() => navigateTo('email')}
-                        className="py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-[0_0_20px_rgba(124,58,237,0.5)]"
+                        className="py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all bg-gradient-to-r from-teal-500 to-emerald-600 text-white shadow-[0_0_20px_rgba(13,148,136,0.5)]"
                       >
                         <Mail className="w-3.5 h-3.5" />
                         <span>Password</span>
@@ -807,7 +806,7 @@ export function LoginPortal() {
                             onChange={(e) => setEmail(e.target.value)}
                             onFocus={handleInputFocus}
                             onBlur={handleInputBlur}
-                            className="h-12 pl-10 bg-slate-950/70 border-white/10 hover:border-violet-500/50 focus:border-violet-400 text-white placeholder:text-slate-500 rounded-2xl text-sm font-medium shadow-inner transition-colors"
+                            className="h-12 pl-10 bg-slate-950/70 border-white/10 hover:border-teal-500/50 focus:border-teal-400 text-white placeholder:text-slate-500 rounded-2xl text-sm font-medium shadow-inner transition-colors"
                             required
                             autoFocus
                           />
@@ -834,7 +833,7 @@ export function LoginPortal() {
                             onChange={(e) => setPassword(e.target.value)}
                             onFocus={handleInputFocus}
                             onBlur={handleInputBlur}
-                            className="h-12 pl-10 pr-10 bg-slate-950/70 border-white/10 hover:border-violet-500/50 focus:border-violet-400 text-white placeholder:text-slate-500 rounded-2xl text-sm font-mono shadow-inner transition-colors"
+                            className="h-12 pl-10 pr-10 bg-slate-950/70 border-white/10 hover:border-teal-500/50 focus:border-teal-400 text-white placeholder:text-slate-500 rounded-2xl text-sm font-mono shadow-inner transition-colors"
                             required
                           />
                           <button
@@ -853,7 +852,7 @@ export function LoginPortal() {
                             type="checkbox"
                             checked={rememberMe}
                             onChange={(e) => setRememberMe(e.target.checked)}
-                            className="w-4 h-4 rounded-md border-white/20 bg-slate-950 text-violet-500 focus:ring-violet-500/40"
+                            className="w-4 h-4 rounded-md border-white/20 bg-slate-950 text-teal-500 focus:ring-teal-500/40"
                           />
                           <span>Remember credentials</span>
                         </label>
@@ -863,7 +862,7 @@ export function LoginPortal() {
                         <Button
                           type="submit"
                           disabled={isLoading}
-                          className="w-full h-12 rounded-2xl bg-gradient-to-r from-violet-600 via-indigo-500 to-violet-600 hover:from-violet-500 hover:to-indigo-400 text-white font-extrabold text-sm tracking-wide shadow-lg shadow-violet-600/28 transition-all disabled:opacity-50"
+                          className="w-full h-12 rounded-2xl bg-gradient-to-r from-teal-500 via-emerald-500 to-teal-600 hover:from-teal-400 hover:to-emerald-500 text-white font-extrabold text-sm tracking-wide shadow-lg shadow-teal-500/30 hover:shadow-teal-500/50 transition-all disabled:opacity-50"
                         >
                           {isLoading ? (
                             <div className="flex items-center gap-2">
@@ -897,7 +896,7 @@ export function LoginPortal() {
                       <button
                         type="button"
                         onClick={() => navigateTo('email')}
-                        className="inline-flex items-center gap-1.5 text-xs text-violet-400 hover:text-violet-300 font-semibold"
+                        className="inline-flex items-center gap-1.5 text-xs text-teal-400 hover:text-teal-300 font-semibold"
                       >
                         <ArrowLeft className="w-3.5 h-3.5" />
                         <span>Back to Sign In</span>
@@ -949,7 +948,7 @@ export function LoginPortal() {
               </AnimatePresence>
 
               {/* ── Register as Expert CTA ── */}
-              <div className="relative overflow-hidden rounded-2xl p-[1px] bg-gradient-to-r from-violet-500/50 via-indigo-400/30 to-rose-500/30">
+              <div className="relative overflow-hidden rounded-2xl p-[1px] bg-gradient-to-r from-teal-500/50 via-amber-400/30 to-violet-500/40">
                 <motion.div
                   whileHover={{ scale: 1.015 }}
                   whileTap={{ scale: 0.98 }}
@@ -961,7 +960,7 @@ export function LoginPortal() {
                   >
                     {/* Left: icon + text */}
                     <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500/20 to-indigo-400/20 border border-violet-500/30 flex items-center justify-center shrink-0 group-hover:border-violet-400/60 transition-colors">
+                      <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-teal-500/20 to-amber-400/20 border border-teal-500/30 flex items-center justify-center shrink-0 group-hover:border-teal-400/60 transition-colors">
                         <Stethoscope className="w-4.5 h-4.5 text-teal-400" />
                       </div>
                       <div>
@@ -995,7 +994,7 @@ export function LoginPortal() {
                 <span>Clinical Support:</span>
                 <a
                   href="tel:+919876543210"
-                  className="font-bold text-violet-400 hover:text-violet-300 transition-colors font-mono"
+                  className="font-bold text-teal-400 hover:text-teal-300 transition-colors font-mono"
                 >
                   +91 99990 00000
                 </a>
