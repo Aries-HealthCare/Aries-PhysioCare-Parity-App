@@ -37,8 +37,12 @@ export function RequestCallbackProvider({ children }: { children: ReactNode }) {
   return (
     <RequestCallbackContext.Provider value={{ openModal, openBookingModal }}>
       {children}
-      <RequestCallbackModal isOpen={isCallbackOpen} onClose={closeCallbackModal} context={modalContext} />
-      <BookingModal isOpen={isBookingOpen} onClose={closeBookingModal} context={modalContext} />
+      {isCallbackOpen && (
+        <RequestCallbackModal isOpen={isCallbackOpen} onClose={closeCallbackModal} context={modalContext} />
+      )}
+      {isBookingOpen && (
+        <BookingModal isOpen={isBookingOpen} onClose={closeBookingModal} context={modalContext} />
+      )}
     </RequestCallbackContext.Provider>
   );
 }
