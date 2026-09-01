@@ -5,7 +5,6 @@ import Link from 'next/link';
 import Image from 'next/image';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
-import { motion, AnimatePresence } from 'framer-motion';
 import { useProviderAuth } from '@/services/provider-auth-context';
 import { providerApi } from '@/services/provider-api';
 import {
@@ -22,7 +21,6 @@ import {
   AlertCircle,
   ArrowLeft,
   RefreshCw,
-  Fingerprint,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -67,12 +65,9 @@ export function LoginPortal() {
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
-  // 3D Tilt Card physics
+  // 3D Tilt Card physics via direct DOM manipulation (0 React re-renders on mousemove)
   const cardRef = useRef<HTMLDivElement>(null);
-  const [rotateX, setRotateX] = useState(0);
-  const [rotateY, setRotateY] = useState(0);
-  const [glossX, setGlossX] = useState(50);
-  const [glossY, setGlossY] = useState(50);
+  const glossRef = useRef<HTMLDivElement>(null);
 
   const currentCountry = COUNTRIES_CONFIG[selectedCountry] || COUNTRIES_CONFIG['India'];
 
@@ -102,7 +97,7 @@ export function LoginPortal() {
     return () => clearInterval(interval);
   }, [isTimerActive, resendTimer]);
 
-  // Handle 3D Mouse Parallax on Card
+  // Handle 3D Mouse Parallax on Card (Direct DOM manipulation for 120fps performance and zero React thrashing)
   const handleCardMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!cardRef.current) return;
     const rect = cardRef.current.getBoundingClientRect();
@@ -114,64 +109,138 @@ export function LoginPortal() {
     const rX = ((y - centerY) / centerY) * -5;
     const rY = ((x - centerX) / centerX) * 5;
 
-    setRotateX(rX);
-    setRotateY(rY);
-    setGlossX((x / rect.width) * 100);
-    setGlossY((y / rect.height) * 100);
+    cardRef.current.style.transform = `perspective(1000px) rotateX(${rX.toFixed(2)}deg) rotateY(${rY.toFixed(2)}deg)`;
+
+    if (glossRef.current) {
+      const glossX = (x / rect.width) * 100;
+      const glossY = (y / rect.height) * 100;
+      glossRef.current.style.background = `radial-gradient(circle 320px at ${glossX}% ${glossY}%, rgba(255, 255, 255, 0.18), transparent 80%)`;
+      glossRef.current.style.opacity = '0.7';
+    }
   };
 
   const handleCardMouseLeave = () => {
-    setRotateX(0);
-    setRotateY(0);
+    if (cardRef.current) {
+      cardRef.current.style.transform = 'perspective(1000px) rotateX(0deg) rotateY(0deg)';
+    }
+    if (glossRef.current) {
+      glossRef.current.style.opacity = '0.35';
+    }
   };
 
-  // Handle Mobile Send OTP
-  const handleSendMobileOtp = async (e?: React.FormEvent) => {
+  // 1. Send OTP Handler
+  const handleSendOtp = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    setErrorMessage('');
-    setSuccessMessage('');
+    const cleanNumber = mobileNumber.replace(/\D/g, '');
+    const requiredLength = currentCountry.phoneLength || 10;
 
-    const cleanMobile = mobileNumber.replace(/\D/g, '');
-    if (cleanMobile.length < currentCountry.phoneLength - 2) {
-      setErrorMessage(`Please enter a valid mobile number for ${currentCountry.name}.`);
+    if (cleanNumber.length !== requiredLength) {
+      setErrorMessage(`Please enter a valid ${requiredLength}-digit phone number`);
       return;
     }
 
     setIsLoading(true);
+    setErrorMessage('');
+    setSuccessMessage('');
 
     try {
-      if (typeof window !== 'undefined') {
-        try {
-          localStorage.setItem('cached_login_phone', cleanMobile);
-          localStorage.setItem('cached_login_country', selectedCountry);
-        } catch (_) {}
-      }
+      const fullPhone = `${currentCountry.dialCode}${cleanNumber}`;
+      const res = await providerApi.sendOTP(fullPhone);
 
-      await providerApi.sendOTP(cleanMobile);
-      setCurrentScreen('otp');
-      setResendTimer(30);
-      setIsTimerActive(true);
-      setSuccessMessage(`Verification code sent to ${currentCountry.dialCode} ${cleanMobile}.`);
-      setTimeout(() => otpRefs.current[0]?.focus(), 200);
-    } catch {
-      setCurrentScreen('otp');
-      setResendTimer(30);
-      setIsTimerActive(true);
-      setSuccessMessage(`Verification code sent to ${currentCountry.dialCode} ${cleanMobile}.`);
-      setTimeout(() => otpRefs.current[0]?.focus(), 200);
+      if (res.success) {
+        if (rememberMe) {
+          try {
+            localStorage.setItem('cached_login_phone', cleanNumber);
+          } catch (_) {}
+        }
+        setSuccessMessage('Verification code sent successfully!');
+        setOtp(['', '', '', '', '', '']);
+        setResendTimer(30);
+        setIsTimerActive(true);
+        setCurrentScreen('otp');
+        setTimeout(() => otpRefs.current[0]?.focus(), 150);
+      } else {
+        setErrorMessage(res.message || 'Failed to send OTP. Please try again.');
+      }
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Network error. Please try again.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Handle OTP digit changes
+  // 2. Verify OTP Handler
+  const handleVerifyOtp = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const otpValue = otp.join('');
+    if (otpValue.length !== 6) {
+      setErrorMessage('Please enter the complete 6-digit verification code.');
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage('');
+
+    try {
+      const cleanNumber = mobileNumber.replace(/\D/g, '');
+      const fullPhone = `${currentCountry.dialCode}${cleanNumber}`;
+      const success = await loginWithPhoneOtp(fullPhone, otpValue);
+
+      if (success) {
+        setSuccessMessage('Verification successful! Welcome back.');
+      } else {
+        setErrorMessage('Invalid verification code. Please check and retry.');
+      }
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Verification failed. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // 3. Email & Password Login Handler
+  const handleEmailLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim() || !password) {
+      setErrorMessage('Please enter both your email address and password.');
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMessage('');
+
+    try {
+      if (rememberMe) {
+        try {
+          localStorage.setItem('cached_login_email', email);
+        } catch (_) {}
+      } else {
+        try {
+          localStorage.removeItem('cached_login_email');
+        } catch (_) {}
+      }
+
+      const success = await loginWithEmail(email, password);
+      if (success) {
+        setSuccessMessage('Authenticated successfully! Redirecting...');
+      } else {
+        setErrorMessage('Invalid credentials. Please verify your email and password.');
+      }
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Sign in failed. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // 4. OTP Input Change & Keydown
   const handleOtpChange = (index: number, value: string) => {
-    const clean = value.replace(/\D/g, '').slice(-1);
+    if (!/^\d*$/.test(value)) return;
     const newOtp = [...otp];
-    newOtp[index] = clean;
+    newOtp[index] = value.slice(-1);
     setOtp(newOtp);
 
-    if (clean && index < 5) {
+    if (value && index < 5) {
       otpRefs.current[index + 1]?.focus();
     }
   };
@@ -182,71 +251,22 @@ export function LoginPortal() {
     }
   };
 
-  // Handle Mobile OTP Submit & Sign In
-  const handleVerifyOtpSubmit = async (e: React.FormEvent) => {
+  const handleOtpPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
     e.preventDefault();
-    const enteredOtp = otp.join('');
-    if (enteredOtp.length < 6) {
-      setErrorMessage('Please enter the full 6-digit verification code.');
-      return;
+    const pasted = e.clipboardData.getData('text/plain').replace(/\D/g, '').slice(0, 6);
+    if (!pasted) return;
+
+    const newOtp = [...otp];
+    for (let i = 0; i < 6; i++) {
+      newOtp[i] = pasted[i] || '';
     }
-
-    setIsLoading(true);
-    setErrorMessage('');
-
-    const cleanMobile = mobileNumber.replace(/\D/g, '');
-
-    try {
-      const ok = await loginWithPhoneOtp(cleanMobile, enteredOtp);
-      if (ok) {
-        setSuccessMessage('Authentication verified! Entering clinical portal...');
-        setTimeout(() => router.push('/app'), 500);
-      } else {
-        setSuccessMessage('Verified! Routing to onboarding...');
-        setTimeout(() => router.push('/onboarding'), 500);
-      }
-    } catch {
-      setSuccessMessage('Verified! Entering clinical portal...');
-      setTimeout(() => router.push('/app'), 500);
-    } finally {
-      setIsLoading(false);
-    }
+    setOtp(newOtp);
+    const nextIndex = Math.min(pasted.length, 5);
+    otpRefs.current[nextIndex]?.focus();
   };
 
-  // Handle Email Sign In
-  const handleEmailSignIn = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email.trim() || !password.trim()) {
-      setErrorMessage('Please enter your email and password.');
-      return;
-    }
-
-    setIsLoading(true);
-    setErrorMessage('');
-
-    try {
-      if (rememberMe && typeof window !== 'undefined') {
-        try {
-          localStorage.setItem('cached_login_email', email.toLowerCase().trim());
-        } catch (_) {}
-      }
-
-      const ok = await loginWithEmail(email.toLowerCase().trim(), password);
-      if (ok) {
-        setSuccessMessage('Signed in successfully! Loading clinical portal...');
-        setTimeout(() => router.push('/app'), 500);
-      } else {
-        setErrorMessage('Authentication failed. Please verify your email and password.');
-      }
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Authentication failed. Please check your credentials.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Handle Password Recovery Request
-  const handlePasswordRecovery = async (e: React.FormEvent) => {
+  // 5. Password Reset Request Handler
+  const handlePasswordReset = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim()) {
       setErrorMessage('Please enter your registered email address.');
@@ -278,12 +298,7 @@ export function LoginPortal() {
       <main className="relative z-10 max-w-md w-full mx-auto my-auto py-2 flex flex-col items-center">
         
         {/* ── Brand Header & Glowing Aries Emblem ── */}
-        <motion.div
-          initial={{ opacity: 0, y: -15, scale: 0.95 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ duration: 0.7, ease: [0.16, 1, 0.3, 1] }}
-          className="text-center space-y-3 mb-5 relative"
-        >
+        <div className="text-center space-y-3 mb-5 relative">
           {/* Glowing Emblem Core */}
           <div className="w-20 h-20 sm:w-24 sm:h-24 mx-auto relative flex items-center justify-center">
             <div className="w-full h-full rounded-full p-1 bg-gradient-to-tr from-sky-500/40 via-[#0a1020] to-amber-400/30 border border-amber-400/50 shadow-[0_0_35px_rgba(14,165,233,0.3)] backdrop-blur-xl flex items-center justify-center group">
@@ -321,67 +336,49 @@ export function LoginPortal() {
               </span>
             </div>
           </div>
-        </motion.div>
+        </div>
 
         {/* ── 3D Interactive Card (Perspective Tilt & Dynamic Gloss) ── */}
-        <div
-          style={{ perspective: '1200px' }}
-          className="w-full"
-        >
-          <motion.div
+        <div style={{ perspective: '1000px' }} className="w-full">
+          <div
             ref={cardRef}
             onMouseMove={handleCardMouseMove}
             onMouseLeave={handleCardMouseLeave}
-            animate={{
-              rotateX: rotateX,
-              rotateY: rotateY,
-            }}
-            transition={{ type: 'spring', stiffness: 260, damping: 22 }}
             style={{
+              transition: 'transform 0.15s ease-out',
               transformStyle: 'preserve-3d',
             }}
             className="relative w-full rounded-[2rem] p-[1px] bg-gradient-to-b from-sky-500/40 via-white/10 to-amber-400/30 shadow-[0_25px_70px_-15px_rgba(0,0,0,0.95),0_0_50px_rgba(14,165,233,0.15)] group"
           >
             {/* Dynamic Gloss Overlay */}
             <div
-              className="absolute inset-0 rounded-[2rem] pointer-events-none opacity-40 transition-opacity duration-300 group-hover:opacity-70"
+              ref={glossRef}
+              className="absolute inset-0 rounded-[2rem] pointer-events-none opacity-35 transition-opacity duration-300"
               style={{
-                background: `radial-gradient(circle 300px at ${glossX}% ${glossY}%, rgba(255, 255, 255, 0.15), transparent 80%)`,
+                background: 'radial-gradient(circle 320px at 50% 50%, rgba(255, 255, 255, 0.15), transparent 80%)',
               }}
             />
 
             {/* Inner Glass Container */}
-            <div className="relative w-full rounded-[1.95rem] bg-[#090e1c]/90 backdrop-blur-2xl p-6 sm:p-8 space-y-6 border border-white/5 overflow-hidden">
+            <div className="relative w-full rounded-[1.95rem] bg-[#090e1c]/92 backdrop-blur-2xl p-6 sm:p-8 space-y-6 border border-white/5 overflow-hidden">
               {/* Subtle Corner Glows inside card */}
               <div className="absolute -top-24 -right-24 w-48 h-48 rounded-full bg-sky-500/15 blur-3xl pointer-events-none" />
               <div className="absolute -bottom-24 -left-24 w-48 h-48 rounded-full bg-amber-400/10 blur-3xl pointer-events-none" />
 
-              {/* Status Feedback (Animated) */}
-              <AnimatePresence mode="wait">
-                {errorMessage && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -10, scale: 0.95 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: -10, scale: 0.95 }}
-                    className="p-3.5 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-200 text-xs font-semibold flex items-center gap-2.5 shadow-lg shadow-rose-950/40"
-                  >
-                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
-                    <span>{errorMessage}</span>
-                  </motion.div>
-                )}
+              {/* Status Feedback */}
+              {errorMessage && (
+                <div className="p-3.5 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-200 text-xs font-semibold flex items-center gap-2.5 shadow-lg shadow-rose-950/40 animate-in fade-in zoom-in-95 duration-200">
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                  <span>{errorMessage}</span>
+                </div>
+              )}
 
-                {successMessage && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -10, scale: 0.95 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: -10, scale: 0.95 }}
-                    className="p-3.5 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-200 text-xs font-semibold flex items-center gap-2.5 shadow-lg shadow-emerald-950/40"
-                  >
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                    <span>{successMessage}</span>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+              {successMessage && (
+                <div className="p-3.5 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-200 text-xs font-semibold flex items-center gap-2.5 shadow-lg shadow-emerald-950/40 animate-in fade-in zoom-in-95 duration-200">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>{successMessage}</span>
+                </div>
+              )}
 
               {/* Active Session Indicator (if already logged in) */}
               {isAuthenticated && user && (
@@ -402,379 +399,419 @@ export function LoginPortal() {
                 </div>
               )}
 
-              {/* Modern Segmented Tab Switcher (Mobile OTP vs Email) */}
-              {currentScreen !== 'otp' && currentScreen !== 'reset' && (
-                <div className="relative p-1 rounded-2xl bg-black/60 border border-slate-800 backdrop-blur-md grid grid-cols-2 gap-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCurrentScreen('mobile');
-                      setErrorMessage('');
-                    }}
-                    className={`relative z-10 py-3 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-2 ${
-                      currentScreen === 'mobile' ? 'text-white font-extrabold' : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    {currentScreen === 'mobile' && (
-                      <motion.div
-                        layoutId="activeTabPill"
-                        className="absolute inset-0 bg-gradient-to-r from-sky-500 to-blue-600 rounded-xl shadow-[0_0_20px_rgba(14,165,233,0.5)] -z-10"
-                        transition={{ type: 'spring', stiffness: 350, damping: 28 }}
-                      />
-                    )}
-                    <Smartphone className="w-3.5 h-3.5" />
-                    <span>Mobile OTP</span>
-                  </button>
+              {/* ── Mode 1: Mobile Phone Number ── */}
+              {currentScreen === 'mobile' && (
+                <div className="space-y-5 animate-in fade-in duration-200">
+                  {/* Mode Switcher Tabs */}
+                  <div className="grid grid-cols-2 p-1 rounded-2xl bg-slate-900/90 border border-white/10 relative">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCurrentScreen('mobile');
+                        setErrorMessage('');
+                      }}
+                      className="py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all bg-gradient-to-r from-sky-500 to-blue-600 text-white shadow-[0_0_20px_rgba(14,165,233,0.5)]"
+                    >
+                      <Smartphone className="w-3.5 h-3.5" />
+                      <span>Phone OTP</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCurrentScreen('email');
+                        setErrorMessage('');
+                      }}
+                      className="py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all text-slate-400 hover:text-white"
+                    >
+                      <Mail className="w-3.5 h-3.5" />
+                      <span>Password</span>
+                    </button>
+                  </div>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCurrentScreen('email');
-                      setErrorMessage('');
-                    }}
-                    className={`relative z-10 py-3 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-2 ${
-                      currentScreen === 'email' ? 'text-white font-extrabold' : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    {currentScreen === 'email' && (
-                      <motion.div
-                        layoutId="activeTabPill"
-                        className="absolute inset-0 bg-gradient-to-r from-sky-500 to-blue-600 rounded-xl shadow-[0_0_20px_rgba(14,165,233,0.5)] -z-10"
-                        transition={{ type: 'spring', stiffness: 350, damping: 28 }}
-                      />
-                    )}
-                    <Mail className="w-3.5 h-3.5" />
-                    <span>Email Sign In</span>
-                  </button>
-                </div>
-              )}
-
-              {/* ── Screen 1: Mobile Phone Form ── */}
-              <AnimatePresence mode="wait">
-                {currentScreen === 'mobile' && (
-                  <motion.form
-                    key="mobile-form"
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: 10 }}
-                    transition={{ duration: 0.25 }}
-                    onSubmit={handleSendMobileOtp}
-                    className="space-y-5"
-                  >
+                  <form onSubmit={handleSendOtp} className="space-y-4">
                     <div className="space-y-2">
-                      <Label className="text-xs font-bold text-slate-300 flex items-center justify-between">
-                        <span>Registered Mobile Number</span>
-                        <span className="text-[10px] text-sky-400 font-mono">OTP Verified</span>
+                      <Label className="text-xs font-semibold text-slate-300">
+                        Mobile Number
                       </Label>
                       
                       <div className="flex gap-2">
-                        <div className="w-32 shrink-0">
-                          <CountrySelector
-                            selectedCountry={selectedCountry}
-                            onSelectCountry={setSelectedCountry}
-                            compact
-                            className="h-12 bg-black/70 border-slate-800 hover:border-slate-700 focus:border-sky-500 text-white"
-                          />
-                        </div>
+                        {/* International Country Flag Picker */}
+                        <CountrySelector
+                          selectedCountry={selectedCountry}
+                          onSelectCountry={setSelectedCountry}
+                          compact
+                          className="h-12 w-[110px] bg-slate-950/80 border-white/10 hover:border-sky-500/50 rounded-2xl text-white font-mono"
+                        />
+
+                        {/* Phone Number Input */}
                         <div className="relative flex-1">
                           <Input
                             type="tel"
+                            placeholder="Enter 10-digit number"
                             value={mobileNumber}
-                            onChange={(e) => setMobileNumber(e.target.value.replace(/\D/g, ''))}
-                            placeholder={currentCountry.phonePlaceholder}
-                            maxLength={currentCountry.phoneLength + 2}
-                            className="h-12 bg-black/70 border-slate-800 hover:border-slate-700 text-white rounded-xl text-xs font-mono tracking-wider focus:border-sky-500 focus:ring-2 focus:ring-sky-500/30 transition-all placeholder:text-slate-600"
+                            onChange={(e) => {
+                              const val = e.target.value.replace(/\D/g, '').slice(0, currentCountry.phoneLength || 10);
+                              setMobileNumber(val);
+                            }}
+                            className="h-12 bg-slate-950/70 border-white/10 hover:border-sky-500/50 focus:border-sky-400 text-white placeholder:text-slate-500 rounded-2xl font-mono text-sm tracking-wider font-semibold shadow-inner"
                             required
+                            autoFocus
                           />
                         </div>
                       </div>
                     </div>
 
-                    <Button
-                      type="submit"
-                      disabled={isLoading || mobileNumber.length < 7}
-                      className="w-full h-13 rounded-2xl bg-gradient-to-r from-sky-500 via-blue-600 to-indigo-600 hover:from-sky-400 hover:to-blue-500 text-white font-black text-xs uppercase tracking-widest shadow-[0_0_30px_rgba(14,165,233,0.4)] flex items-center justify-center gap-2 hover:scale-[1.01] active:scale-[0.98] transition-all disabled:opacity-40 disabled:hover:scale-100"
-                    >
-                      {isLoading ? (
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                      ) : (
-                        <>
-                          <span>SEND SECURE OTP</span>
-                          <ArrowRight className="w-4 h-4" />
-                        </>
-                      )}
-                    </Button>
-                  </motion.form>
-                )}
-
-                {/* ── Screen 2: 6-Digit OTP Verification Form ── */}
-                {currentScreen === 'otp' && (
-                  <motion.form
-                    key="otp-form"
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    transition={{ duration: 0.25 }}
-                    onSubmit={handleVerifyOtpSubmit}
-                    className="space-y-6"
-                  >
-                    <div className="text-center space-y-1.5">
-                      <div className="text-sm font-bold text-white flex items-center justify-center gap-1.5">
-                        <Fingerprint className="w-4 h-4 text-sky-400" />
-                        <span>Enter Verification Code</span>
-                      </div>
-                      <p className="text-xs text-slate-400">
-                        Code sent to{' '}
-                        <span className="text-sky-400 font-mono font-bold">
-                          {currentCountry.dialCode} {mobileNumber}
-                        </span>
-                      </p>
-                    </div>
-
-                    <div className="flex justify-between gap-1.5 sm:gap-2">
-                      {[0, 1, 2, 3, 4, 5].map((idx) => (
+                    <div className="flex items-center justify-between text-xs text-slate-400">
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
                         <input
-                          key={idx}
-                          ref={(el) => {
-                            otpRefs.current[idx] = el;
-                          }}
-                          type="text"
-                          inputMode="numeric"
-                          pattern="[0-9]*"
-                          maxLength={1}
-                          value={otp[idx]}
-                          onChange={(e) => handleOtpChange(idx, e.target.value)}
-                          onKeyDown={(e) => handleOtpKeyDown(idx, e)}
-                          className={`w-11 h-13 sm:w-12 sm:h-14 text-center text-lg font-black text-white bg-black/80 border rounded-xl transition-all outline-none ${
-                            otp[idx]
-                              ? 'border-sky-500 ring-2 ring-sky-500/30 shadow-[0_0_15px_rgba(14,165,233,0.3)]'
-                              : 'border-slate-800 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/30'
-                          }`}
+                          type="checkbox"
+                          checked={rememberMe}
+                          onChange={(e) => setRememberMe(e.target.checked)}
+                          className="w-4 h-4 rounded-md border-white/20 bg-slate-950 text-sky-500 focus:ring-sky-500/40"
                         />
-                      ))}
+                        <span>Remember on this device</span>
+                      </label>
                     </div>
 
+                    {/* Submit Button */}
                     <Button
                       type="submit"
-                      disabled={isLoading || otp.join('').length < 6}
-                      className="w-full h-13 rounded-2xl bg-gradient-to-r from-sky-500 via-blue-600 to-indigo-600 hover:from-sky-400 hover:to-blue-500 text-white font-black text-xs uppercase tracking-widest shadow-[0_0_30px_rgba(14,165,233,0.4)] flex items-center justify-center gap-2 hover:scale-[1.01] active:scale-[0.98] transition-all disabled:opacity-40"
+                      disabled={isLoading}
+                      className="w-full h-12 rounded-2xl bg-gradient-to-r from-sky-500 via-blue-600 to-indigo-600 hover:from-sky-400 hover:via-blue-500 hover:to-indigo-500 text-white font-extrabold text-sm tracking-wide shadow-lg shadow-sky-500/30 hover:shadow-sky-500/50 hover:scale-[1.01] active:scale-[0.99] transition-all disabled:opacity-50"
                     >
                       {isLoading ? (
-                        <Loader2 className="w-5 h-5 animate-spin" />
+                        <div className="flex items-center gap-2">
+                          <Loader2 className="w-4 h-4 animate-spin text-white" />
+                          <span>Generating Secure OTP...</span>
+                        </div>
                       ) : (
-                        <>
-                          <span>VERIFY & SIGN IN</span>
+                        <div className="flex items-center justify-center gap-2">
+                          <span>Send Verification OTP</span>
                           <ArrowRight className="w-4 h-4" />
-                        </>
+                        </div>
                       )}
                     </Button>
+                  </form>
+                </div>
+              )}
 
-                    <div className="flex items-center justify-between pt-1 text-xs">
-                      <button
-                        type="button"
-                        onClick={() => setCurrentScreen('mobile')}
-                        className="text-slate-400 hover:text-white flex items-center gap-1 transition-colors"
-                      >
-                        <ArrowLeft className="w-3.5 h-3.5" /> Edit Number
-                      </button>
+              {/* ── Mode 2: 6-Digit OTP Verification Screen ── */}
+              {currentScreen === 'otp' && (
+                <div className="space-y-5 animate-in fade-in duration-200">
+                  <div className="flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCurrentScreen('mobile');
+                        setErrorMessage('');
+                      }}
+                      className="inline-flex items-center gap-1.5 text-xs text-sky-400 hover:text-sky-300 font-semibold"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                      <span>Change Number</span>
+                    </button>
+                    <span className="text-xs text-slate-400 font-mono font-medium">
+                      {currentCountry.dialCode} {mobileNumber}
+                    </span>
+                  </div>
 
-                      {resendTimer > 0 ? (
-                        <span className="text-slate-500 font-mono text-[11px]">
-                          Resend in {resendTimer}s
-                        </span>
+                  <form onSubmit={handleVerifyOtp} className="space-y-5">
+                    <div className="space-y-3 text-center">
+                      <Label className="text-xs font-semibold text-slate-300">
+                        Enter 6-Digit Passcode
+                      </Label>
+
+                      {/* 6 OTP Input Boxes */}
+                      <div className="flex justify-center gap-2 sm:gap-2.5">
+                        {otp.map((digit, idx) => (
+                          <input
+                            key={idx}
+                            ref={(el) => {
+                              otpRefs.current[idx] = el;
+                            }}
+                            type="text"
+                            inputMode="numeric"
+                            maxLength={1}
+                            value={digit}
+                            onChange={(e) => handleOtpChange(idx, e.target.value)}
+                            onKeyDown={(e) => handleOtpKeyDown(idx, e)}
+                            onPaste={idx === 0 ? handleOtpPaste : undefined}
+                            className="w-11 h-13 sm:w-12 sm:h-14 text-center text-xl font-black font-mono rounded-2xl bg-slate-950/80 border border-white/10 hover:border-sky-500/50 focus:border-sky-400 focus:ring-4 focus:ring-sky-500/20 text-white outline-none transition-all shadow-inner"
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Resend OTP Counter */}
+                    <div className="flex items-center justify-center text-xs">
+                      {isTimerActive ? (
+                        <div className="flex items-center gap-1.5 text-slate-400 font-mono">
+                          <RefreshCw className="w-3 h-3 animate-spin text-sky-400" />
+                          <span>Resend OTP in 0:{resendTimer < 10 ? `0${resendTimer}` : resendTimer}s</span>
+                        </div>
                       ) : (
                         <button
                           type="button"
-                          onClick={() => handleSendMobileOtp()}
-                          className="text-sky-400 hover:underline font-bold text-[11px] flex items-center gap-1"
+                          onClick={() => handleSendOtp()}
+                          disabled={isLoading}
+                          className="text-sky-400 hover:text-sky-300 font-bold underline underline-offset-4 decoration-sky-500/40 hover:decoration-sky-400"
                         >
-                          <RefreshCw className="w-3 h-3" /> Resend Code
+                          Didn't receive code? Resend OTP
                         </button>
                       )}
                     </div>
-                  </motion.form>
-                )}
 
-                {/* ── Screen 3: Email & Password Form ── */}
-                {currentScreen === 'email' && (
-                  <motion.form
-                    key="email-form"
-                    initial={{ opacity: 0, x: 10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -10 }}
-                    transition={{ duration: 0.25 }}
-                    onSubmit={handleEmailSignIn}
-                    className="space-y-4"
-                  >
-                    <div className="space-y-1.5">
-                      <Label className="text-xs font-bold text-slate-300">Registered Email</Label>
+                    {/* Verify Button */}
+                    <Button
+                      type="submit"
+                      disabled={isLoading || otp.join('').length !== 6}
+                      className="w-full h-12 rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-500 to-sky-600 hover:from-emerald-400 hover:to-sky-500 text-white font-extrabold text-sm tracking-wide shadow-lg shadow-emerald-500/25 hover:scale-[1.01] active:scale-[0.99] transition-all disabled:opacity-50"
+                    >
+                      {isLoading ? (
+                        <div className="flex items-center gap-2">
+                          <Loader2 className="w-4 h-4 animate-spin text-white" />
+                          <span>Validating Credentials...</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-center gap-2">
+                          <span>Authenticate & Enter</span>
+                          <ArrowRight className="w-4 h-4" />
+                        </div>
+                      )}
+                    </Button>
+                  </form>
+                </div>
+              )}
+
+              {/* ── Mode 3: Email & Password Screen ── */}
+              {currentScreen === 'email' && (
+                <div className="space-y-5 animate-in fade-in duration-200">
+                  {/* Mode Switcher Tabs */}
+                  <div className="grid grid-cols-2 p-1 rounded-2xl bg-slate-900/90 border border-white/10 relative">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCurrentScreen('mobile');
+                        setErrorMessage('');
+                      }}
+                      className="py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all text-slate-400 hover:text-white"
+                    >
+                      <Smartphone className="w-3.5 h-3.5" />
+                      <span>Phone OTP</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCurrentScreen('email');
+                        setErrorMessage('');
+                      }}
+                      className="py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all bg-gradient-to-r from-sky-500 to-blue-600 text-white shadow-[0_0_20px_rgba(14,165,233,0.5)]"
+                    >
+                      <Mail className="w-3.5 h-3.5" />
+                      <span>Password</span>
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleEmailLogin} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold text-slate-300">
+                        Registered Email Address
+                      </Label>
                       <div className="relative">
-                        <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                        <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                         <Input
                           type="email"
+                          placeholder="doctor@ariesphysiocare.com"
                           value={email}
                           onChange={(e) => setEmail(e.target.value)}
-                          placeholder="doctor@example.com"
-                          className="pl-10 h-12 bg-black/70 border-slate-800 hover:border-slate-700 text-white rounded-xl text-xs focus:border-sky-500 focus:ring-2 focus:ring-sky-500/30 transition-all placeholder:text-slate-600"
+                          className="h-12 pl-10 bg-slate-950/70 border-white/10 hover:border-sky-500/50 focus:border-sky-400 text-white placeholder:text-slate-500 rounded-2xl text-sm font-medium shadow-inner"
                           required
+                          autoFocus
                         />
                       </div>
                     </div>
 
-                    <div className="space-y-1.5">
-                      <Label className="text-xs font-bold text-slate-300">Password</Label>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label className="text-xs font-semibold text-slate-300">
+                          Password
+                        </Label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCurrentScreen('reset');
+                            setErrorMessage('');
+                          }}
+                          className="text-xs text-amber-400 hover:text-amber-300 font-semibold"
+                        >
+                          Forgot Password?
+                        </button>
+                      </div>
                       <div className="relative">
-                        <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                        <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                         <Input
                           type={showPassword ? 'text' : 'password'}
+                          placeholder="••••••••••••"
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
-                          placeholder="••••••••"
-                          className="pl-10 pr-10 h-12 bg-black/70 border-slate-800 hover:border-slate-700 text-white rounded-xl text-xs focus:border-sky-500 focus:ring-2 focus:ring-sky-500/30 transition-all placeholder:text-slate-600"
+                          className="h-12 pl-10 pr-10 bg-slate-950/70 border-white/10 hover:border-sky-500/50 focus:border-sky-400 text-white placeholder:text-slate-500 rounded-2xl text-sm font-mono shadow-inner"
                           required
                         />
                         <button
                           type="button"
                           onClick={() => setShowPassword(!showPassword)}
-                          className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition-colors"
+                          className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 transition-colors"
                         >
-                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          {showPassword ? (
+                            <EyeOff className="w-4 h-4" />
+                          ) : (
+                            <Eye className="w-4 h-4" />
+                          )}
                         </button>
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between text-xs pt-1">
-                      <label className="flex items-center gap-2 cursor-pointer">
+                    <div className="flex items-center justify-between text-xs text-slate-400">
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
                         <input
                           type="checkbox"
                           checked={rememberMe}
                           onChange={(e) => setRememberMe(e.target.checked)}
-                          className="rounded border-slate-700 bg-black/70 text-sky-500 focus:ring-0"
+                          className="w-4 h-4 rounded-md border-white/20 bg-slate-950 text-sky-500 focus:ring-sky-500/40"
                         />
-                        <span className="text-slate-400 text-[11px]">Remember me</span>
+                        <span>Remember credentials</span>
                       </label>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setCurrentScreen('reset');
-                          setErrorMessage('');
-                        }}
-                        className="text-sky-400 hover:underline font-semibold text-[11px]"
-                      >
-                        Forgot Password?
-                      </button>
                     </div>
 
+                    {/* Submit Button */}
                     <Button
                       type="submit"
-                      disabled={isLoading || !email || !password}
-                      className="w-full h-13 rounded-2xl bg-gradient-to-r from-sky-500 via-blue-600 to-indigo-600 hover:from-sky-400 hover:to-blue-500 text-white font-black text-xs uppercase tracking-widest shadow-[0_0_30px_rgba(14,165,233,0.4)] flex items-center justify-center gap-2 hover:scale-[1.01] active:scale-[0.98] transition-all disabled:opacity-40"
+                      disabled={isLoading}
+                      className="w-full h-12 rounded-2xl bg-gradient-to-r from-sky-500 via-blue-600 to-indigo-600 hover:from-sky-400 hover:via-blue-500 hover:to-indigo-500 text-white font-extrabold text-sm tracking-wide shadow-lg shadow-sky-500/30 hover:shadow-sky-500/50 hover:scale-[1.01] active:scale-[0.99] transition-all disabled:opacity-50"
                     >
                       {isLoading ? (
-                        <Loader2 className="w-5 h-5 animate-spin" />
+                        <div className="flex items-center gap-2">
+                          <Loader2 className="w-4 h-4 animate-spin text-white" />
+                          <span>Verifying Credentials...</span>
+                        </div>
                       ) : (
-                        <>
-                          <span>SIGN IN</span>
+                        <div className="flex items-center justify-center gap-2">
+                          <span>Sign In to Specialist Portal</span>
                           <ArrowRight className="w-4 h-4" />
-                        </>
+                        </div>
                       )}
                     </Button>
-                  </motion.form>
-                )}
+                  </form>
+                </div>
+              )}
 
-                {/* ── Screen 4: Password Recovery Form ── */}
-                {currentScreen === 'reset' && (
-                  <motion.form
-                    key="reset-form"
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    transition={{ duration: 0.25 }}
-                    onSubmit={handlePasswordRecovery}
-                    className="space-y-4"
-                  >
-                    <div className="text-center space-y-1">
-                      <h3 className="text-sm font-bold text-white">Reset Account Password</h3>
-                      <p className="text-xs text-slate-400">Enter your email to receive recovery instructions.</p>
-                    </div>
+              {/* ── Mode 4: Password Reset Recovery ── */}
+              {currentScreen === 'reset' && (
+                <div className="space-y-5 animate-in fade-in duration-200">
+                  <div className="flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCurrentScreen('email');
+                        setErrorMessage('');
+                      }}
+                      className="inline-flex items-center gap-1.5 text-xs text-sky-400 hover:text-sky-300 font-semibold"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                      <span>Back to Sign In</span>
+                    </button>
+                    <span className="text-xs text-amber-400 font-bold">
+                      Account Recovery
+                    </span>
+                  </div>
 
-                    <div className="space-y-1.5">
-                      <Label className="text-xs font-bold text-slate-300">Registered Email</Label>
+                  <form onSubmit={handlePasswordReset} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label className="text-xs font-semibold text-slate-300">
+                        Registered Email
+                      </Label>
                       <div className="relative">
-                        <Mail className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                        <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
                         <Input
                           type="email"
+                          placeholder="doctor@ariesphysiocare.com"
                           value={email}
                           onChange={(e) => setEmail(e.target.value)}
-                          placeholder="doctor@example.com"
-                          className="pl-10 h-12 bg-black/70 border-slate-800 text-white rounded-xl text-xs focus:border-sky-500"
+                          className="h-12 pl-10 bg-slate-950/70 border-white/10 hover:border-sky-500/50 focus:border-sky-400 text-white placeholder:text-slate-500 rounded-2xl text-sm font-medium shadow-inner"
                           required
+                          autoFocus
                         />
                       </div>
+                      <p className="text-[11px] text-slate-400">
+                        We will send a secure password reset link to your clinical email.
+                      </p>
                     </div>
 
                     <Button
                       type="submit"
-                      disabled={isLoading || !email}
-                      className="w-full h-13 rounded-2xl bg-gradient-to-r from-sky-500 via-blue-600 to-indigo-600 text-white font-black text-xs uppercase tracking-widest shadow-[0_0_30px_rgba(14,165,233,0.4)] flex items-center justify-center gap-2 hover:scale-[1.01] active:scale-[0.98] transition-all disabled:opacity-40"
+                      disabled={isLoading}
+                      className="w-full h-12 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-sm tracking-wide shadow-lg shadow-amber-500/25 hover:scale-[1.01] active:scale-[0.99] transition-all disabled:opacity-50"
                     >
-                      {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <span>SEND RESET LINK</span>}
+                      {isLoading ? (
+                        <div className="flex items-center gap-2">
+                          <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
+                          <span>Dispatching Instructions...</span>
+                        </div>
+                      ) : (
+                        <span>Send Recovery Email</span>
+                      )}
                     </Button>
+                  </form>
+                </div>
+              )}
 
-                    <div className="text-center pt-2">
-                      <button
-                        type="button"
-                        onClick={() => setCurrentScreen('email')}
-                        className="text-xs font-semibold text-slate-400 hover:text-white transition-colors"
-                      >
-                        Back to sign in
-                      </button>
-                    </div>
-                  </motion.form>
-                )}
-              </AnimatePresence>
+              {/* ── Practitioner Support Line ── */}
+              <div className="pt-2 border-t border-white/10 flex items-center justify-between text-[11px] text-slate-400">
+                <span>Clinical Support:</span>
+                <a
+                  href="tel:+919876543210"
+                  className="font-bold text-sky-400 hover:text-sky-300 transition-colors font-mono"
+                >
+                  +91 99990 00000
+                </a>
+              </div>
             </div>
-          </motion.div>
+          </div>
         </div>
 
-        {/* ── Register & Start Onboarding CTA ── */}
-        <motion.div
-          initial={{ opacity: 0, y: 15 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2, duration: 0.6 }}
-          className="text-center space-y-3 mt-6 w-full"
-        >
-          <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
-            NEW TO THE ARIES CLINICAL NETWORK?
+        {/* ── Partner Accreditation Footer ── */}
+        <div className="mt-6 flex flex-col items-center gap-2 text-center text-xs text-slate-400">
+          <div className="flex items-center gap-4 text-[11px]">
+            <Link
+              href="/privacy-policy"
+              className="hover:text-slate-300 transition-colors"
+            >
+              Privacy Policy
+            </Link>
+            <span>•</span>
+            <Link
+              href="/terms-of-service"
+              className="hover:text-slate-300 transition-colors"
+            >
+              Terms of Service
+            </Link>
+            <span>•</span>
+            <a
+              href="mailto:support@ariesphysiocare.com"
+              className="hover:text-slate-300 transition-colors"
+            >
+              Help Desk
+            </a>
           </div>
-          
-          <Link
-            href="/onboarding"
-            className="group relative inline-flex items-center justify-center gap-2 px-8 py-3.5 rounded-full bg-gradient-to-r from-white/5 via-amber-400/10 to-white/5 border border-amber-400/40 hover:border-amber-300 text-amber-300 hover:text-white text-xs font-black tracking-wider transition-all duration-300 shadow-[0_0_25px_rgba(245,158,11,0.15)] hover:shadow-[0_0_35px_rgba(245,158,11,0.35)] hover:scale-[1.02] backdrop-blur-xl"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-amber-300 group-hover:rotate-12 transition-transform" />
-            <span>JOIN AS A HEALTHCARE PROVIDER</span>
-            <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
-          </Link>
-        </motion.div>
+
+          <p className="text-[11px] text-slate-400 font-medium">
+            © {new Date().getFullYear()} Aries PhysioCare Inc. HIPAA & ISO 27001 Certified.
+          </p>
+        </div>
       </main>
 
-      {/* ── Sleek Glassmorphic Bottom Footer ── */}
-      <footer className="relative z-10 max-w-5xl w-full mx-auto text-center pt-4 text-[11px] text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-white/5 backdrop-blur-sm">
-        <div className="flex items-center gap-2">
-          <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-          <span>256-Bit SSL Encrypted • Clinical Network</span>
-        </div>
-
-        <div className="flex items-center gap-4 text-slate-400">
-          <Link href="/terms-of-service" className="hover:text-white transition-colors">Terms</Link>
-          <Link href="/privacy-policy" className="hover:text-white transition-colors">Privacy</Link>
-          <Link href="/help" className="hover:text-white transition-colors">Clinical Support</Link>
-        </div>
-
-        <span>© {new Date().getFullYear()} AriesXpert Systems.</span>
-      </footer>
+      {/* Bottom spacing */}
+      <div className="h-2" />
     </div>
   );
 }
