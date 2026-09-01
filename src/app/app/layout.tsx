@@ -87,12 +87,18 @@ const MOBILE_BOTTOM_TABS = [
 export default function ProviderAppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user, dutyStatus, toggleDutyStatus, logout, isAuthenticated } = useProviderAuth();
+  const { user, dutyStatus, toggleDutyStatus, logout, isAuthenticated, isLoading } = useProviderAuth();
 
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const [showSOSModal, setShowSOSModal] = useState(false);
   const [sosCountdown, setSosCountdown] = useState<number | null>(null);
   const [sosTransmitted, setSosTransmitted] = useState(false);
+
+  useEffect(() => {
+    if (!isLoading && !isAuthenticated) {
+      router.replace('/login');
+    }
+  }, [isLoading, isAuthenticated, router]);
 
   const therapistName = user?.fullName || user?.name || (user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : 'Provider');
   const axId = user?.axId || user?.therapistId || user?.uid || 'AX-IND-4892';
@@ -120,6 +126,15 @@ export default function ProviderAppLayout({ children }: { children: React.ReactN
     setShowSOSModal(false);
     setSosTransmitted(false);
   };
+
+  if (isLoading || !isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-[#000000] flex flex-col items-center justify-center space-y-4">
+        <div className="w-12 h-12 border-4 border-[#0088FF]/30 border-t-[#0088FF] rounded-full animate-spin" />
+        <p className="text-xs font-mono text-slate-400 tracking-wider">Verifying clinical credentials...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col font-body antialiased selection:bg-primary/20">
