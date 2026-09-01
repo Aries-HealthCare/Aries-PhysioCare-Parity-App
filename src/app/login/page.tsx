@@ -254,21 +254,12 @@ export default function ProviderLoginPage() {
 
   return (
     <div className="min-h-screen w-full bg-[#02050e] text-white flex flex-col justify-between relative overflow-hidden select-none font-sans py-6 px-4 sm:px-6">
-      {/* ── 3D Interactive Three.js WebGL Particle Constellation & Geometries ── */}
+      {/* ── 3D Interactive Three.js WebGL Deep Space & Stars Cosmos ── */}
       <Login3DBackground />
 
-      {/* ── Ambient Radial Glows & Grid Mesh ── */}
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(0,136,255,0.18),rgba(255,255,255,0))] pointer-events-none z-0" />
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_60%_60%_at_50%_120%,rgba(255,215,0,0.12),rgba(0,0,0,0))] pointer-events-none z-0" />
-      
-      {/* Subtle Perspective Grid Overlay */}
-      <div 
-        className="absolute inset-0 opacity-[0.03] pointer-events-none z-0"
-        style={{
-          backgroundImage: 'linear-gradient(#0088FF 1px, transparent 1px), linear-gradient(90deg, #0088FF 1px, transparent 1px)',
-          backgroundSize: '48px 48px',
-        }}
-      />
+      {/* ── Ambient Celestial Glows ── */}
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_70%_50%_at_50%_-10%,rgba(0,136,255,0.15),transparent_70%)] pointer-events-none z-0" />
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_60%_50%_at_50%_110%,rgba(255,215,0,0.08),transparent_70%)] pointer-events-none z-0" />
 
       {/* Spacer when header options are removed */}
       <div className="h-2 sm:h-4" />
