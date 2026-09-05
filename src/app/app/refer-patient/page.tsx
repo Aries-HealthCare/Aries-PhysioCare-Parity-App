@@ -47,6 +47,7 @@ export default function ProviderReferPatientPage() {
   const { user } = useProviderAuth();
   const [referredList, setReferredList] = useState<ReferredPatientItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [showReferForm, setShowReferForm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successFeedback, setSuccessFeedback] = useState<string | null>(null);
@@ -60,7 +61,7 @@ export default function ProviderReferPatientPage() {
   const [address, setAddress] = useState('');
   const [landmark, setLandmark] = useState('');
   const [area, setArea] = useState('');
-  const [city, setCity] = useState(user?.city || 'Mumbai');
+  const [city, setCity] = useState(user?.city || '');
   const [pincode, setPincode] = useState('400092');
   const [condition, setCondition] = useState('Post-TKR Knee Joint Mobilization');
   const [selectedPackage, setSelectedPackage] = useState('10-Session Comprehensive Recovery Pack (₹7,800)');
@@ -79,7 +80,7 @@ export default function ProviderReferPatientPage() {
           patientName: p.patientName || p.name || 'Patient',
           patientPhone: p.patientMobile || p.phone || '',
           condition: p.patientCondition || p.condition || 'General Physiotherapy',
-          city: p.city || user?.city || 'Mumbai',
+          city: p.city || user?.city || '',
           area: p.patientAddress || p.area || '',
           dateReferred: p.createdAt ? new Date(p.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Recent',
           visitsDone: p.visitsDone || 0,
@@ -91,8 +92,10 @@ export default function ProviderReferPatientPage() {
       } else {
         setReferredList([]);
       }
-    } catch (_) {
-      setReferredList([]);
+      setLoadError(null);
+    } catch (err: any) {
+      // An unreachable backend must not be shown as "no referrals yet".
+      setLoadError(err?.message || 'Could not load your referrals from the server.');
     } finally {
       setIsLoading(false);
     }
@@ -126,7 +129,7 @@ export default function ProviderReferPatientPage() {
       patientMobile: phone.trim(),
       patientAddress: `${address} ${landmark} ${area} ${pincode}`.trim(),
       patientCondition: condition,
-      city: city || user?.city || 'Mumbai',
+      city: city || user?.city || '',
     };
 
     const res = await providerApi.createReferPatient(payload);
@@ -155,6 +158,12 @@ export default function ProviderReferPatientPage() {
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
+      {loadError && (
+        <div className="p-4 rounded-2xl text-xs font-bold flex items-center gap-2 bg-red-500/10 text-red-600 border border-red-500/30">
+          <span>{loadError}</span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>

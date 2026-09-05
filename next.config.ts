@@ -11,19 +11,11 @@ const nextConfig: NextConfig = {
   compress: true,
   productionBrowserSourceMaps: false,
 
-  async rewrites() {
-    const backendUrl = (process.env.NEXT_PUBLIC_API_URL || 'https://api.ariesxpert.com').replace(/\/$/, '');
-    return [
-      {
-        source: '/api/app/:path*',
-        destination: `${backendUrl}/api/app/:path*`,
-      },
-      {
-        source: '/api/v1/:path*',
-        destination: `${backendUrl}/api/v1/:path*`,
-      },
-    ];
-  },
+  // NOTE: `/api/app/*`, `/api/admin/*` and `/api/v1/*` are served by same-origin
+  // route handlers (src/app/api/**/[...path]/route.ts) which forward to the backend
+  // origin resolved by `getBackendOrigin()`. They deliberately replace the previous
+  // rewrites, which double-prefixed the path whenever the configured env var already
+  // carried an `/api/v1` suffix (as `.env.example` documents).
 
   compiler: {
     removeConsole: process.env.NODE_ENV === 'production' ? { exclude: ['error', 'warn'] } : false,

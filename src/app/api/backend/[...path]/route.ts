@@ -1,6 +1,8 @@
 import { createBackendProxy } from '@/lib/api-proxy';
 
-const handlers = createBackendProxy('app');
+// Forwards to the backend origin root — for the endpoints the mobile app calls
+// without an `/api/...` prefix (e.g. `POST /attendance`).
+const handlers = createBackendProxy('root');
 
 export const dynamic = 'force-dynamic';
 export const GET = handlers.GET;

@@ -1,51 +1,102 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
-import { useProviderAuth } from '@/services/provider-auth-context';
+import React, { useCallback, useEffect, useState } from 'react';
+import { providerApi } from '@/services/provider-api';
 import {
   Video,
-  Mic,
-  MicOff,
-  VideoOff,
-  PhoneOff,
-  MessageSquare,
-  FileText,
   Clock,
-  Send,
-  User,
-  ShieldCheck,
-  CheckCircle2,
-  Share2,
-  Sparkles,
-  Stethoscope,
   Plus,
   Trash2,
-  Save,
-  Volume2,
+  Send,
+  Loader2,
+  AlertTriangle,
+  CheckCircle2,
+  ExternalLink,
+  PhoneOff,
+  User,
+  ShieldCheck,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
+/**
+ * Telehealth Video Suite.
+ *
+ * The backend provisions the actual consultation room:
+ *   POST /api/app/appointment/:id/start-telehealth → { meetLink, roomId, provider, agoraAppId }
+ *        (also sends the patient their WhatsApp / email invite)
+ *   PUT  /api/app/appointment/:id/assessment       → exercise prescription + notes
+ *   POST /api/app/appointment/:id/end-telehealth
+ *
+ * The session list is the provider's real appointment list filtered to tele-consults, so
+ * the queue matches the mobile telehealth screen. Nothing about the patient, the session
+ * number or the room is simulated here.
+ */
+
+interface Exercise {
+  name: string;
+  sets: string;
+  reps: string;
+  hold: string;
+}
+
+interface ActiveSession {
+  appointmentId: string;
+  meetLink?: string;
+  roomId?: string;
+  provider?: string;
+  startedAt: number;
+}
+
+function patientNameOf(appointment: any) {
+  return (
+    appointment?.patient?.fullName ||
+    appointment?.patient?.name ||
+    appointment?.patientName ||
+    [appointment?.patient?.firstName, appointment?.patient?.lastName].filter(Boolean).join(' ') ||
+    'Patient'
+  );
+}
+
 export default function ProviderTelehealthPage() {
-  const { user } = useProviderAuth();
-  const [isInCall, setIsInCall] = useState(false);
-  const [isMicMuted, setIsMicMuted] = useState(false);
-  const [isVideoOff, setIsVideoOff] = useState(false);
-  const [callDurationSeconds, setCallDurationSeconds] = useState(0);
-  const [activeDrawer, setActiveDrawer] = useState<'RECORD' | 'PRESCRIPTION' | 'CHAT'>('RECORD');
-  const [chatMessages, setChatMessages] = useState<Array<{ sender: 'therapist' | 'patient'; text: string; time: string }>>([]);
-  const [chatInput, setChatInput] = useState('');
+  const [appointments, setAppointments] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  // Prescription items
-  const [exercises, setExercises] = useState<Array<{ name: string; sets: string; reps: string; hold: string }>>([]);
+  const [session, setSession] = useState<ActiveSession | null>(null);
+  const [activeAppointment, setActiveAppointment] = useState<any | null>(null);
+  const [isStarting, setIsStarting] = useState<string | null>(null);
+  const [isEnding, setIsEnding] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+
+  const [exercises, setExercises] = useState<Exercise[]>([]);
   const [newExName, setNewExName] = useState('');
+  const [notes, setNotes] = useState('');
+  const [isSavingPlan, setIsSavingPlan] = useState(false);
 
-  // Call timer
+  const load = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const list = await providerApi.getTelehealthAppointments();
+      setAppointments(list);
+      setError(null);
+    } catch (err: any) {
+      setError(err?.message || 'Could not load your telehealth queue from the server.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    if (!isInCall) return;
-    const timer = setInterval(() => setCallDurationSeconds((prev) => prev + 1), 1000);
+    void load();
+  }, [load]);
+
+  useEffect(() => {
+    if (!session) return;
+    const timer = setInterval(() => setElapsed(Math.floor((Date.now() - session.startedAt) / 1000)), 1000);
     return () => clearInterval(timer);
-  }, [isInCall]);
+  }, [session]);
 
   const formatTimer = (sec: number) => {
     const m = Math.floor(sec / 60);
@@ -53,24 +104,80 @@ export default function ProviderTelehealthPage() {
     return `${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
-  const handleStartCall = () => {
-    setIsInCall(true);
-    setCallDurationSeconds(0);
+  const handleStart = async (appointment: any) => {
+    const id = appointment._id || appointment.id;
+    setIsStarting(id);
+    setError(null);
+    setNotice(null);
+    try {
+      const res = await providerApi.startTelehealth(id);
+      if (!res.success) {
+        setError(res.message || 'The telehealth room could not be provisioned.');
+        return;
+      }
+      const data = res.result || {};
+      setSession({
+        appointmentId: id,
+        meetLink: data.meetLink,
+        roomId: data.roomId,
+        provider: data.provider,
+        startedAt: Date.now(),
+      });
+      setActiveAppointment(appointment);
+      setElapsed(0);
+      setNotice(res.message || 'Session started — the patient has been sent their join link.');
+      if (data.meetLink && typeof window !== 'undefined') {
+        window.open(data.meetLink, '_blank', 'noopener,noreferrer');
+      }
+    } catch (err: any) {
+      setError(err?.message || 'The telehealth room could not be provisioned.');
+    } finally {
+      setIsStarting(null);
+    }
   };
 
-  const handleEndCall = () => {
-    setIsInCall(false);
-    alert('Telehealth consultation completed. Session summary and exercise prescription transmitted to patient WhatsApp & Aries App.');
+  const handleSavePlan = async () => {
+    if (!session) return;
+    setIsSavingPlan(true);
+    setError(null);
+    try {
+      const res = await providerApi.submitTelehealthAssessment(session.appointmentId, {
+        exercises,
+        notes,
+      });
+      if (!res.success) {
+        setError(res.message || 'The prescription could not be saved.');
+        return;
+      }
+      setNotice('Exercise prescription saved to the appointment record.');
+    } catch (err: any) {
+      setError(err?.message || 'The prescription could not be saved.');
+    } finally {
+      setIsSavingPlan(false);
+    }
   };
 
-  const handleSendChat = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!chatInput.trim()) return;
-    setChatMessages([
-      ...chatMessages,
-      { sender: 'therapist', text: chatInput, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) },
-    ]);
-    setChatInput('');
+  const handleEnd = async () => {
+    if (!session) return;
+    setIsEnding(true);
+    setError(null);
+    try {
+      const res = await providerApi.endTelehealth(session.appointmentId);
+      if (!res.success) {
+        setError(res.message || 'The session could not be closed on the server.');
+        return;
+      }
+      setSession(null);
+      setActiveAppointment(null);
+      setExercises([]);
+      setNotes('');
+      setNotice('Consultation ended and recorded against the appointment.');
+      await load();
+    } catch (err: any) {
+      setError(err?.message || 'The session could not be closed on the server.');
+    } finally {
+      setIsEnding(false);
+    }
   };
 
   const handleAddExercise = () => {
@@ -91,243 +198,214 @@ export default function ProviderTelehealthPage() {
             <h1 className="text-2xl font-outfit font-extrabold tracking-tight">Telehealth Video Suite</h1>
           </div>
           <p className="text-xs text-muted-foreground mt-1">
-            Encrypted HD video consultation suite with live exercise prescription and real-time SOAP assessment notes.
+            Provisioned consultation rooms with live exercise prescription, recorded against the appointment.
           </p>
         </div>
 
-        {isInCall && (
-          <div className="flex items-center gap-2 bg-destructive/10 text-destructive border border-destructive/20 px-3 py-1.5 rounded-2xl text-xs font-mono font-bold animate-pulse">
-            <span className="w-2 h-2 rounded-full bg-destructive animate-ping" />
-            <span>SESSION LIVE • {formatTimer(callDurationSeconds)}</span>
+        {session && (
+          <div className="flex items-center gap-2 bg-destructive/10 text-destructive border border-destructive/20 px-3 py-1.5 rounded-2xl text-xs font-mono font-bold">
+            <span className="w-2 h-2 rounded-full bg-destructive animate-pulse" />
+            <span>SESSION LIVE • {formatTimer(elapsed)}</span>
           </div>
         )}
       </div>
 
-      {!isInCall ? (
-        /* Pre-Call Lobby / Patient Queued Card */
-        <div className="bg-card border border-border/80 rounded-3xl p-6 sm:p-8 shadow-sm space-y-6 max-w-2xl mx-auto text-center">
-          <div className="w-16 h-16 rounded-3xl bg-primary/10 text-primary flex items-center justify-center mx-auto shadow-inner">
-            <Video className="w-8 h-8" />
-          </div>
+      {error && (
+        <div className="p-4 rounded-2xl text-xs font-bold flex items-center gap-2 bg-red-500/10 text-red-600 border border-red-500/30">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
 
-          <div>
-            <span className="text-[10px] font-mono font-bold text-emerald-500 uppercase tracking-widest bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">
-              Patient Ready in Waiting Room
-            </span>
-            <h2 className="text-xl sm:text-2xl font-outfit font-black text-foreground mt-2">
-              Tele-Rehab Consultation: Mrs. Sunita Sharma
-            </h2>
-            <p className="text-xs text-muted-foreground mt-1">
-              Condition: <strong className="text-foreground">Cervical Spondylosis & Ergonomic Postural Guidance</strong> • 30 Min Session
-            </p>
-          </div>
+      {notice && (
+        <div className="p-4 rounded-2xl text-xs font-bold flex items-center gap-2 bg-emerald-500/10 text-emerald-600 border border-emerald-500/30">
+          <CheckCircle2 className="w-4 h-4 shrink-0" />
+          <span>{notice}</span>
+        </div>
+      )}
 
-          <div className="grid grid-cols-2 gap-3 p-4 bg-muted/30 rounded-2xl text-xs text-left">
-            <div>
-              <p className="text-muted-foreground">Patient Age & Gender:</p>
-              <p className="font-bold text-foreground mt-0.5">48y, Female (Mumbai)</p>
+      {!session ? (
+        /* Queue of telehealth-eligible appointments */
+        <div className="bg-card border border-border/80 rounded-3xl p-6 shadow-sm space-y-4">
+          <h3 className="text-base font-outfit font-extrabold text-foreground">Tele-consultation Queue</h3>
+
+          {isLoading ? (
+            <div className="text-xs text-muted-foreground flex items-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span>Loading your telehealth appointments…</span>
             </div>
-            <div>
-              <p className="text-muted-foreground">Session Number:</p>
-              <p className="font-bold text-primary mt-0.5">Session 2 of 5</p>
+          ) : appointments.length === 0 ? (
+            <div className="p-8 text-center border border-dashed border-border/80 rounded-3xl">
+              <Video className="w-8 h-8 text-muted-foreground mx-auto mb-2 opacity-50" />
+              <p className="text-xs font-bold text-foreground">No tele-consultations scheduled</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Video appointments assigned to you will appear here.
+              </p>
             </div>
-          </div>
+          ) : (
+            <div className="space-y-3">
+              {appointments.map((appointment: any) => {
+                const id = appointment._id || appointment.id;
+                return (
+                  <div
+                    key={id}
+                    className="p-4 rounded-2xl border border-border/60 bg-muted/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="w-9 h-9 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                        <User className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="font-extrabold text-foreground">{patientNameOf(appointment)}</div>
+                        <div className="text-muted-foreground mt-0.5">
+                          {appointment.treatmentType || appointment.condition || 'Tele-rehabilitation'}
+                          {appointment.sessionNumber ? ` · session ${appointment.sessionNumber}` : ''}
+                        </div>
+                        {appointment.appointmentDate && (
+                          <div className="text-[10px] text-muted-foreground font-mono mt-1 flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            <span>
+                              {new Date(appointment.appointmentDate).toLocaleString('en-IN', {
+                                dateStyle: 'medium',
+                                timeStyle: 'short',
+                              })}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
 
-          <Button
-            onClick={handleStartCall}
-            className="w-full h-12 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-outfit font-extrabold text-sm shadow-xl shadow-emerald-600/20"
-          >
-            Launch Video Consultation Room ➔
-          </Button>
+                    <Button
+                      onClick={() => handleStart(appointment)}
+                      disabled={isStarting === id}
+                      className="h-10 px-5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs shrink-0"
+                    >
+                      {isStarting === id ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        'Start consultation'
+                      )}
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       ) : (
-        /* Live Video Room Grid */
+        /* Live session workspace */
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Main Video Viewport (2 cols) */}
           <div className="lg:col-span-2 space-y-4">
-            <div className="relative aspect-video rounded-3xl bg-slate-950 border-2 border-primary/40 overflow-hidden shadow-2xl flex items-center justify-center">
-              {/* Remote Patient Video Simulation */}
-              <div className="text-center space-y-2">
-                <div className="w-24 h-24 rounded-full bg-slate-800 text-slate-300 flex items-center justify-center text-3xl font-bold mx-auto border-2 border-slate-700">
-                  SS
-                </div>
-                <p className="text-sm font-outfit font-extrabold text-white">Mrs. Sunita Sharma</p>
-                <p className="text-xs text-emerald-400 font-mono">● 1080p HD Audio & Video Active</p>
+            <div className="bg-card border border-border/80 rounded-3xl p-6 shadow-sm space-y-4">
+              <div className="flex items-center gap-2 text-xs font-bold text-emerald-500">
+                <ShieldCheck className="w-4 h-4" />
+                <span>
+                  Room provisioned{session.provider ? ` via ${session.provider.toUpperCase()}` : ''}
+                  {session.roomId ? ` · ${session.roomId}` : ''}
+                </span>
               </div>
 
-              {/* Local Therapist Floating Camera */}
-              <div className="absolute top-4 right-4 w-36 sm:w-44 aspect-video rounded-2xl bg-slate-900 border-2 border-white/20 overflow-hidden shadow-lg flex items-center justify-center">
-                {isVideoOff ? (
-                  <div className="text-[11px] text-slate-400 font-bold">Camera Off</div>
+              <h2 className="text-xl font-outfit font-black text-foreground">
+                {patientNameOf(activeAppointment)}
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                The patient has been sent their join link over WhatsApp and email by the backend.
+                Open the room below to join the call.
+              </p>
+
+              {session.meetLink ? (
+                <a href={session.meetLink} target="_blank" rel="noopener noreferrer">
+                  <Button className="h-11 px-6 rounded-2xl font-extrabold text-xs">
+                    <ExternalLink className="w-4 h-4 mr-1.5" />
+                    <span>Open consultation room</span>
+                  </Button>
+                </a>
+              ) : (
+                <p className="text-xs text-amber-500 font-bold">
+                  The server did not return a room link for this session.
+                </p>
+              )}
+
+              <Button
+                onClick={handleEnd}
+                disabled={isEnding}
+                variant="outline"
+                className="h-11 px-6 rounded-2xl font-extrabold text-xs border-destructive/40 text-destructive"
+              >
+                {isEnding ? (
+                  <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
                 ) : (
-                  <div className="text-center p-2">
-                    <div className="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center text-xs font-bold mx-auto">
-                      {user?.fullName?.[0] || 'D'}
-                    </div>
-                    <p className="text-[10px] text-slate-300 font-bold mt-1 truncate">You (Dr. {user?.fullName || 'Therapist'})</p>
-                  </div>
+                  <PhoneOff className="w-4 h-4 mr-1.5" />
                 )}
-              </div>
-
-              {/* Call Controls Bar */}
-              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-black/60 backdrop-blur-md px-4 py-2 rounded-2xl border border-white/10 shadow-2xl">
-                <button
-                  type="button"
-                  onClick={() => setIsMicMuted(!isMicMuted)}
-                  className={`p-3 rounded-xl transition-all ${
-                    isMicMuted ? 'bg-destructive text-white' : 'bg-white/10 text-white hover:bg-white/20'
-                  }`}
-                  title={isMicMuted ? 'Unmute' : 'Mute'}
-                >
-                  {isMicMuted ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setIsVideoOff(!isVideoOff)}
-                  className={`p-3 rounded-xl transition-all ${
-                    isVideoOff ? 'bg-destructive text-white' : 'bg-white/10 text-white hover:bg-white/20'
-                  }`}
-                  title={isVideoOff ? 'Turn Camera On' : 'Turn Camera Off'}
-                >
-                  {isVideoOff ? <VideoOff className="w-4 h-4" /> : <Video className="w-4 h-4" />}
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleEndCall}
-                  className="px-4 py-3 rounded-xl bg-destructive hover:bg-destructive/90 text-white font-outfit font-extrabold text-xs flex items-center gap-2 shadow-lg"
-                >
-                  <PhoneOff className="w-4 h-4" />
-                  <span>End Session</span>
-                </button>
-              </div>
+                <span>End consultation</span>
+              </Button>
             </div>
           </div>
 
-          {/* Right Clinical Drawer (1 col) */}
-          <div className="bg-card border border-border/80 rounded-3xl p-5 shadow-sm flex flex-col space-y-4 h-[520px]">
-            {/* Drawer Tabs */}
-            <div className="flex gap-1 p-1 bg-muted/40 rounded-2xl border border-border/60 shrink-0">
-              <button
-                onClick={() => setActiveDrawer('RECORD')}
-                className={`flex-1 py-1.5 text-xs font-outfit font-bold rounded-xl transition-all ${
-                  activeDrawer === 'RECORD' ? 'bg-primary text-white shadow-sm' : 'text-muted-foreground'
-                }`}
-              >
-                Patient File
-              </button>
-              <button
-                onClick={() => setActiveDrawer('PRESCRIPTION')}
-                className={`flex-1 py-1.5 text-xs font-outfit font-bold rounded-xl transition-all ${
-                  activeDrawer === 'PRESCRIPTION' ? 'bg-primary text-white shadow-sm' : 'text-muted-foreground'
-                }`}
-              >
-                Prescription
-              </button>
-              <button
-                onClick={() => setActiveDrawer('CHAT')}
-                className={`flex-1 py-1.5 text-xs font-outfit font-bold rounded-xl transition-all ${
-                  activeDrawer === 'CHAT' ? 'bg-primary text-white shadow-sm' : 'text-muted-foreground'
-                }`}
-              >
-                In-Call Chat
-              </button>
+          {/* Prescription panel */}
+          <div className="bg-card border border-border/80 rounded-3xl p-6 shadow-sm space-y-4">
+            <h3 className="text-sm font-extrabold text-foreground">Exercise Prescription</h3>
+
+            <div className="flex gap-2">
+              <Input
+                value={newExName}
+                onChange={(e) => setNewExName(e.target.value)}
+                placeholder="Add exercise name..."
+                className="h-10 rounded-xl text-xs"
+              />
+              <Button onClick={handleAddExercise} className="h-10 px-3 rounded-xl">
+                <Plus className="w-4 h-4" />
+              </Button>
             </div>
 
-            {/* TAB 1: PATIENT FILE */}
-            {activeDrawer === 'RECORD' && (
-              <div className="flex-1 overflow-y-auto space-y-3 text-xs">
-                <div className="p-3.5 bg-muted/30 rounded-2xl space-y-1">
-                  <p className="font-bold text-foreground">Clinical Diagnosis</p>
-                  <p className="text-muted-foreground">Cervical Spondylosis with upper trapezius spasm.</p>
-                </div>
-                <div className="p-3.5 bg-muted/30 rounded-2xl space-y-1">
-                  <p className="font-bold text-foreground">Baseline VAS Pain Score</p>
-                  <p className="text-amber-500 font-mono font-extrabold">6 / 10 (Moderate to Severe)</p>
-                </div>
-                <div className="p-3.5 bg-muted/30 rounded-2xl space-y-1">
-                  <p className="font-bold text-foreground">Session 1 Notes</p>
-                  <p className="text-muted-foreground">
-                    Performed active-assisted chin tucks and levator scapulae gentle stretching. Recommended ergonomic display height.
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* TAB 2: LIVE PRESCRIPTION GENERATOR */}
-            {activeDrawer === 'PRESCRIPTION' && (
-              <div className="flex-1 flex flex-col space-y-3 overflow-hidden text-xs">
-                <div className="flex gap-2 shrink-0">
-                  <Input
-                    placeholder="Add exercise name..."
-                    value={newExName}
-                    onChange={(e) => setNewExName(e.target.value)}
-                    className="h-9 rounded-xl text-xs"
-                  />
-                  <Button onClick={handleAddExercise} size="sm" className="h-9 px-3 rounded-xl font-bold">
-                    <Plus className="w-3.5 h-3.5" />
-                  </Button>
-                </div>
-
-                <div className="flex-1 overflow-y-auto space-y-2">
-                  {exercises.map((ex, idx) => (
-                    <div key={idx} className="p-3 bg-muted/30 rounded-2xl border border-border/60 space-y-1">
-                      <div className="flex items-center justify-between font-bold text-foreground">
-                        <span>{ex.name}</span>
-                        <button
-                          onClick={() => setExercises(exercises.filter((_, i) => i !== idx))}
-                          className="text-muted-foreground hover:text-destructive"
-                        >
-                          ✕
-                        </button>
+            <div className="space-y-2">
+              {exercises.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic">No exercises added yet.</p>
+              ) : (
+                exercises.map((exercise, idx) => (
+                  <div
+                    key={`${exercise.name}-${idx}`}
+                    className="p-3 rounded-2xl bg-muted/20 border border-border/60 text-xs flex items-center justify-between"
+                  >
+                    <div>
+                      <div className="font-bold text-foreground">{exercise.name}</div>
+                      <div className="text-muted-foreground text-[11px]">
+                        {exercise.sets} · {exercise.reps} · {exercise.hold}
                       </div>
-                      <p className="text-[11px] text-primary font-mono font-bold">
-                        {ex.sets} • {ex.reps} • {ex.hold}
-                      </p>
                     </div>
-                  ))}
-                </div>
-
-                <Button size="sm" className="w-full h-9 rounded-xl bg-primary text-white font-bold text-xs shrink-0">
-                  <Save className="w-3.5 h-3.5 mr-1" />
-                  <span>Transmit to Patient App</span>
-                </Button>
-              </div>
-            )}
-
-            {/* TAB 3: IN-CALL CHAT */}
-            {activeDrawer === 'CHAT' && (
-              <div className="flex-1 flex flex-col space-y-3 overflow-hidden text-xs">
-                <div className="flex-1 overflow-y-auto space-y-2">
-                  {chatMessages.map((msg, i) => (
-                    <div
-                      key={i}
-                      className={`p-2.5 rounded-2xl max-w-[85%] ${
-                        msg.sender === 'therapist'
-                          ? 'ml-auto bg-primary text-white font-medium'
-                          : 'bg-muted/40 text-foreground border border-border/60'
-                      }`}
+                    <button
+                      type="button"
+                      onClick={() => setExercises(exercises.filter((_, i) => i !== idx))}
+                      className="text-muted-foreground hover:text-destructive"
+                      aria-label="Remove exercise"
                     >
-                      <p>{msg.text}</p>
-                      <span className="text-[9px] opacity-70 block text-right mt-0.5">{msg.time}</span>
-                    </div>
-                  ))}
-                </div>
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
 
-                <form onSubmit={handleSendChat} className="flex gap-2 shrink-0">
-                  <Input
-                    placeholder="Type message to patient..."
-                    value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    className="h-9 rounded-xl text-xs"
-                  />
-                  <Button type="submit" size="sm" className="h-9 px-3 rounded-xl">
-                    <Send className="w-3.5 h-3.5" />
-                  </Button>
-                </form>
-              </div>
-            )}
+            <textarea
+              rows={4}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Consultation notes for the patient record..."
+              className="w-full p-3 bg-background border border-input rounded-2xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+
+            <Button
+              onClick={handleSavePlan}
+              disabled={isSavingPlan}
+              className="w-full h-11 rounded-2xl font-extrabold text-xs"
+            >
+              {isSavingPlan ? (
+                <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+              ) : (
+                <Send className="w-4 h-4 mr-1.5" />
+              )}
+              <span>Save prescription to record</span>
+            </Button>
           </div>
         </div>
       )}

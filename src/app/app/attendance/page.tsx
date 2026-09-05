@@ -26,6 +26,7 @@ export default function ProviderAttendancePage() {
   const [punchedInTime, setPunchedInTime] = useState<string | null>(dutyStatus ? 'Active Duty' : null);
   const [punchedOutTime, setPunchedOutTime] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [currentCoords, setCurrentCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [attendanceLog, setAttendanceLog] = useState<Array<{ date: string; punchIn: string; punchOut: string; hours: string; status: string; onTime: boolean }>>([]);
 
@@ -33,7 +34,8 @@ export default function ProviderAttendancePage() {
     if (typeof window !== 'undefined' && navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => setCurrentCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        () => setCurrentCoords({ lat: 19.076, lng: 72.8777 })
+        // No invented fallback location — a punch without GPS is recorded without one.
+        () => setCurrentCoords(null)
       );
     }
   }, []);
@@ -44,25 +46,44 @@ export default function ProviderAttendancePage() {
     }
   }, [dutyStatus]);
 
-  const handlePunchIn = async () => {
+  /**
+   * Punches post to the same `/attendance` endpoint and body the mobile
+   * `AttendanceNotifier.markAttendance` uses. A failed punch is reported as a failure —
+   * the duty toggle is only flipped once the server accepted the record.
+   */
+  const punch = async (type: 'PUNCH_IN' | 'PUNCH_OUT') => {
     setIsPunchingIn(true);
-    const res = await providerApi.recordAttendance('PUNCH_IN', currentCoords || undefined);
-    setIsPunchingIn(false);
-    setPunchedInTime(res.timestamp);
-    if (!dutyStatus) await toggleDutyStatus();
-    setFeedback(`✓ Clocked In successfully at ${res.timestamp} with GPS verification.`);
-    setTimeout(() => setFeedback(null), 4000);
+    setError(null);
+    try {
+      const res = await providerApi.recordAttendance(type, currentCoords || undefined);
+      if (!res.success) {
+        setError(res.message || 'The attendance record was not accepted.');
+        return;
+      }
+      if (type === 'PUNCH_IN') {
+        setPunchedInTime(res.timestamp);
+        if (!dutyStatus) await toggleDutyStatus();
+        setFeedback(
+          `Clocked in at ${res.timestamp}${currentCoords ? ' with GPS verification' : ' (no GPS — location permission denied)'}.`
+        );
+      } else {
+        setPunchedOutTime(res.timestamp);
+        if (dutyStatus) await toggleDutyStatus();
+        setFeedback(`Clocked out at ${res.timestamp}. Day shift completed.`);
+      }
+      setTimeout(() => setFeedback(null), 4000);
+    } catch (err: any) {
+      setError(
+        err?.message ||
+          'Attendance could not be recorded. Your duty status is unchanged — try again.'
+      );
+    } finally {
+      setIsPunchingIn(false);
+    }
   };
 
-  const handlePunchOut = async () => {
-    setIsPunchingIn(true);
-    const res = await providerApi.recordAttendance('PUNCH_OUT', currentCoords || undefined);
-    setIsPunchingIn(false);
-    setPunchedOutTime(res.timestamp);
-    if (dutyStatus) await toggleDutyStatus();
-    setFeedback(`✓ Clocked Out successfully at ${res.timestamp}. Day shift completed.`);
-    setTimeout(() => setFeedback(null), 4000);
-  };
+  const handlePunchIn = () => punch('PUNCH_IN');
+  const handlePunchOut = () => punch('PUNCH_OUT');
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
@@ -78,6 +99,11 @@ export default function ProviderAttendancePage() {
           <p className="text-xs text-muted-foreground mt-1">
             GPS geo-verified daily clock-in, duty status telemetry, and monthly shift records.
           </p>
+          {error && (
+            <div className="mt-3 p-3 rounded-2xl text-xs font-bold bg-red-500/10 text-red-600 border border-red-500/30">
+              {error}
+            </div>
+          )}
         </div>
 
         {/* Quick Duty Status Switch */}
@@ -116,7 +142,7 @@ export default function ProviderAttendancePage() {
               <span>
                 GPS Location:{' '}
                 <strong className="text-foreground">
-                  {currentCoords ? `${currentCoords.lat.toFixed(4)}, ${currentCoords.lng.toFixed(4)} (Borivali West)` : 'Acquiring GPS...'}
+                  {currentCoords ? `${currentCoords.lat.toFixed(5)}, ${currentCoords.lng.toFixed(5)}` : 'Location unavailable'}
                 </strong>
               </span>
             </div>

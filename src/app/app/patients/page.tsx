@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { providerApi } from '@/services/provider-api';
+import { useRealtimeEvent } from '@/services/provider-realtime';
 import {
   Users,
   Search,
@@ -39,6 +40,7 @@ export default function ProviderPatientsPage() {
   const [selectedPatient, setSelectedPatient] = useState<any | null>(null);
   const [showReferModal, setShowReferModal] = useState<any | null>(null);
   const [feedbackPatient, setFeedbackPatient] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadPatients = useCallback(async (showRefresh = false) => {
     if (showRefresh) setRefreshing(true);
@@ -46,8 +48,9 @@ export default function ProviderPatientsPage() {
     try {
       const data = await providerApi.getPatients();
       setPatients(data);
-    } catch (e) {
-      console.warn('Patients load error', e);
+      setLoadError(null);
+    } catch (e: any) {
+      setLoadError(e?.message || 'Could not load your patient registry from the server.');
     } finally {
       setIsLoading(false);
       setRefreshing(false);
@@ -55,6 +58,11 @@ export default function ProviderPatientsPage() {
   }, []);
 
   useEffect(() => { loadPatients(); }, [loadPatients]);
+
+  // A lead approved by admin adds a patient to this provider's registry.
+  useRealtimeEvent('lead_approved', () => {
+    void loadPatients(true);
+  });
 
   const handleReview = async (p: any) => {
     const id = p._id || p.id;
@@ -82,6 +90,15 @@ export default function ProviderPatientsPage() {
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
+      {loadError && (
+        <div className="p-4 rounded-2xl text-xs font-bold flex items-center gap-2 bg-red-500/10 text-red-600 border border-red-500/30">
+          <span>{loadError}</span>
+          <button type="button" onClick={() => loadPatients(true)} className="ml-auto underline">
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>

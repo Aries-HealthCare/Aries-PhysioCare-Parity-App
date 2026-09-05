@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useProviderAuth } from '@/services/provider-auth-context';
+import { providerApi } from '@/services/provider-api';
 import {
   Bot,
   Send,
@@ -92,6 +93,9 @@ export default function ProviderAIBuddyPage() {
   ]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [buddyDashboard, setBuddyDashboard] = useState<any | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Voice & Audio Speech State
@@ -209,38 +213,35 @@ export default function ProviderAIBuddyPage() {
     setEmotion('thinking');
 
     try {
-      const res = await fetch('/api/app/ai-copilot', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: text,
-          therapistName,
-        }),
-      });
-      const data = await res.json();
-      const replyText = data.reply || `Hello ${therapistName}! How can I assist with your clinical cases or doorstep exercise prescriptions today?`;
+      // POST /api/app/buddy/chat — the shared companion service the mobile
+      // `BuddyService` talks to, so the conversation, session and companion memory are
+      // the same on both clients instead of two separate assistants.
+      const res = await providerApi.sendBuddyChat(text, sessionId || undefined);
+      if (!res.success || !res.reply) {
+        throw new Error(res.message || 'The clinical companion did not respond.');
+      }
+      if (res.sessionId && res.sessionId !== sessionId) setSessionId(res.sessionId);
 
       const buddyMsg: ChatMessage = {
         id: 'msg_b_' + Date.now(),
         sender: 'buddy',
-        text: replyText,
+        text: res.reply,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
 
       setMessages((prev) => [...prev, buddyMsg]);
       setEmotion('happy');
+      setChatError(null);
 
       if (ttsEnabled) {
-        speakText(replyText);
+        speakText(res.reply);
       }
-    } catch {
-      const buddyMsg: ChatMessage = {
-        id: 'msg_b_' + Date.now(),
-        sender: 'buddy',
-        text: `Hello ${therapistName}! I'm ready to assist with your patient cases. Could you please share the diagnosis or protocol you would like to discuss?`,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-      setMessages((prev) => [...prev, buddyMsg]);
+    } catch (err: any) {
+      // No canned reply — a fabricated answer here would read as clinical advice the
+      // service never produced, and would not appear in the mobile conversation.
+      setChatError(
+        err?.message || 'Could not reach the clinical companion. Your message was not sent.'
+      );
       setEmotion('happy');
     } finally {
       setIsLoading(false);
@@ -589,6 +590,12 @@ export default function ProviderAIBuddyPage() {
                 <span className="text-xs font-bold text-foreground">
                   {companionName} is synthesizing clinical protocol...
                 </span>
+              </div>
+            )}
+
+            {chatError && (
+              <div className="p-3.5 bg-destructive/10 border border-destructive/30 rounded-2xl text-xs font-bold text-destructive">
+                {chatError}
               </div>
             )}
 

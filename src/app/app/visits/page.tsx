@@ -181,6 +181,15 @@ export default function ProviderVisitsPage() {
 
   const handleStartTravel = async () => {
     if (!activeApt) return;
+    const feeOnRecord = Number(activeApt.perSessionPrice ?? activeApt.amount ?? 0) || 0;
+    if (feeOnRecord <= 0) {
+      setFeedback({
+        type: 'error',
+        text: 'This appointment has no session fee on record. Ask operations to set the price before finalizing.',
+      });
+      return;
+    }
+
     setIsProcessing(true);
     const id = activeApt._id || activeApt.id;
     try {
@@ -194,16 +203,42 @@ export default function ProviderVisitsPage() {
     }
   };
 
+  /**
+   * The backend geo-validates the arrival (`validate-arrival`). Mobile only advances the
+   * visit when that call succeeds (`VisitFlowService.markReached` rethrows on failure),
+   * so this must not advance optimistically either — an unvalidated arrival would leave
+   * the appointment in a different state on the server than on screen.
+   */
   const handleMarkArrived = async () => {
     if (!activeApt) return;
     setIsProcessing(true);
     const id = activeApt._id || activeApt.id;
+
+    const position = await new Promise<GeolocationPosition | null>((resolve) => {
+      if (typeof navigator === 'undefined' || !navigator.geolocation) return resolve(null);
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve(pos),
+        () => resolve(null),
+        { enableHighAccuracy: true, timeout: 8000 }
+      );
+    });
+
     try {
-      await providerApi.markArrived(id);
+      const res = await providerApi.markArrived(
+        id,
+        position ? { lat: position.coords.latitude, lng: position.coords.longitude } : undefined
+      );
+      if (!res.success) {
+        setFeedback({ type: 'error', text: res.message || 'Arrival could not be validated. Try again.' });
+        return;
+      }
       setVisitStage('ARRIVED');
       setFeedback({ type: 'info', text: 'Arrived at patient doorstep. Request 4-digit check-in OTP.' });
-    } catch {
-      setVisitStage('ARRIVED');
+    } catch (err: any) {
+      setFeedback({
+        type: 'error',
+        text: err?.message || 'Arrival could not be validated. Check your connection and try again.',
+      });
     } finally {
       setIsProcessing(false);
     }
@@ -221,16 +256,15 @@ export default function ProviderVisitsPage() {
     const id = activeApt._id || activeApt.id;
     try {
       const res = await providerApi.checkInWithOtp(id, otpInput.trim());
-      if (res.success) {
-        setVisitStage('IN_SESSION');
-        setFeedback({ type: 'success', text: 'OTP Verified! Clinical treatment session is now active.' });
-      } else {
-        // Allow pass for evaluation
-        setVisitStage('IN_SESSION');
-        setFeedback({ type: 'success', text: 'OTP Verified! Clinical treatment session is now active.' });
+      if (!res.success) {
+        // The OTP is the patient's proof that the visit began — never wave it through.
+        setOtpError(res.message || 'That OTP was not accepted. Ask the patient to read it again.');
+        return;
       }
-    } catch {
       setVisitStage('IN_SESSION');
+      setFeedback({ type: 'success', text: 'OTP verified. Clinical treatment session is now active.' });
+    } catch (err: any) {
+      setOtpError(err?.message || 'Could not verify the OTP. Check your connection and try again.');
     } finally {
       setIsProcessing(false);
     }
@@ -245,13 +279,16 @@ export default function ProviderVisitsPage() {
     if (!activeApt) return;
     setIsProcessing(true);
     const id = activeApt._id || activeApt.id;
-    const sessionFee = activeApt.perSessionPrice || activeApt.amount || 800;
+    // Never invent a price — the appointment record carries the agreed fee. If it is
+    // missing the visit cannot be finalized (guarded below), rather than charging a
+    // default the patient never agreed to.
+    const sessionFee = Number(activeApt.perSessionPrice ?? activeApt.amount ?? 0) || 0;
     const addOnTotal = selectedAddOns.reduce((sum, name) => sum + (ADDON_PRICING[name] || 0), 0);
 
     const payload: FinalizeVisitPayload = {
       appointmentId: id,
-      expertId: user?._id || user?.id || 'exp_demo',
-      patientId: activeApt.patientId || activeApt.patient?._id || 'pat_demo',
+      expertId: user?._id || user?.id,
+      patientId: activeApt.patientId || activeApt.patient?._id,
       sessionFee,
       addOnFees: addOnTotal,
       totalAmount: sessionFee + addOnTotal,
@@ -264,16 +301,28 @@ export default function ProviderVisitsPage() {
 
     try {
       const res = await providerApi.finalizeVisit(payload);
-      if (res.success) {
-        setVisitStage('COMPLETED');
-        setFeedback({ type: 'success', text: 'Visit finalized! ₹' + (sessionFee + addOnTotal) + ' credited to your wallet.' });
-        loadData();
-      } else {
-        setVisitStage('COMPLETED');
-        setFeedback({ type: 'success', text: 'Visit completed successfully.' });
+      if (!res.success) {
+        setFeedback({
+          type: 'error',
+          text: res.message || 'The visit could not be finalized. Nothing has been charged.',
+        });
+        return;
       }
-    } catch {
       setVisitStage('COMPLETED');
+      setFeedback({
+        type: 'success',
+        text: `Visit finalized. ₹${sessionFee + addOnTotal} recorded against this appointment.`,
+      });
+      // Referral earnings are computed server-side after finalization, same as mobile.
+      if (payload.patientId) {
+        void providerApi.calculateReferralEarning(payload.patientId, payload.totalAmount, id);
+      }
+      loadData();
+    } catch (err: any) {
+      setFeedback({
+        type: 'error',
+        text: err?.message || 'The visit could not be finalized. Nothing has been charged.',
+      });
     } finally {
       setIsProcessing(false);
     }
@@ -371,7 +420,7 @@ export default function ProviderVisitsPage() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
               <div className="flex items-center gap-2 text-muted-foreground p-3 rounded-2xl bg-muted/30">
                 <MapPin className="w-4 h-4 text-primary shrink-0" />
-                <span className="truncate">{activeApt.address || activeApt.patientDetails?.address || 'Borivali West, Mumbai'}</span>
+                <span className="truncate">{activeApt.address || activeApt.patientDetails?.address || activeApt.patient?.address || 'Address not on file'}</span>
               </div>
               <div className="flex items-center gap-2 text-muted-foreground p-3 rounded-2xl bg-muted/30">
                 <Clock className="w-4 h-4 text-primary shrink-0" />
@@ -380,7 +429,7 @@ export default function ProviderVisitsPage() {
               <div className="flex items-center gap-2 text-muted-foreground p-3 rounded-2xl bg-muted/30">
                 <Phone className="w-4 h-4 text-emerald-500 shrink-0" />
                 <a href={`tel:${activeApt.patientPhone || activeApt.patient?.phone || '9820144219'}`} className="font-mono font-bold text-foreground hover:underline">
-                  {activeApt.patientPhone || activeApt.patient?.phone || '+91 98201 44219'}
+                  {activeApt.patientPhone || activeApt.patient?.phone || activeApt.patient?.mobileNo || '—'}
                 </a>
               </div>
             </div>
@@ -683,7 +732,7 @@ export default function ProviderVisitsPage() {
               <div className="p-4 bg-muted/40 rounded-2xl border border-border/60 space-y-2.5 text-xs">
                 <div className="flex justify-between text-muted-foreground">
                   <span>Standard Doorstep Session Fee:</span>
-                  <span className="font-mono font-bold text-foreground">₹{activeApt.perSessionPrice || activeApt.amount || 800}</span>
+                  <span className="font-mono font-bold text-foreground">₹{Number(activeApt.perSessionPrice ?? activeApt.amount ?? 0) || 0}</span>
                 </div>
 
                 {selectedAddOns.length > 0 && (
@@ -700,7 +749,7 @@ export default function ProviderVisitsPage() {
                 <div className="flex justify-between text-sm font-outfit font-black pt-2 border-t border-border/80 text-foreground">
                   <span>Total Amount Payable:</span>
                   <span className="font-mono text-primary text-base">
-                    ₹{(activeApt.perSessionPrice || activeApt.amount || 800) +
+                    ₹{(Number(activeApt.perSessionPrice ?? activeApt.amount ?? 0) || 0) +
                       selectedAddOns.reduce((sum, name) => sum + (ADDON_PRICING[name] || 0), 0)}
                   </span>
                 </div>
@@ -836,7 +885,7 @@ export default function ProviderVisitsPage() {
                 const id = apt._id || apt.id;
                 const name = apt.patientName || apt.patient?.name || apt.patientDetails?.name || 'Patient';
                 const time = apt.scheduledTime || apt.timeSlot || 'Today • 10:30 AM';
-                const address = apt.address || apt.patientDetails?.address || 'Borivali West, Mumbai';
+                const address = apt.address || apt.patientDetails?.address || apt.patient?.address || 'Address not on file';
                 const condition = apt.condition || apt.packageName || 'Orthopedic Therapy';
                 const sessNum = apt.sessionNumber || apt.sessionsDone || 1;
                 const isFirst = sessNum === 1 || !apt.sessionsDone;
@@ -862,7 +911,7 @@ export default function ProviderVisitsPage() {
 
                         <div className="text-right">
                           <span className="font-mono font-black text-sm text-foreground">
-                            ₹{apt.perSessionPrice || apt.amount || 800}
+                            ₹{Number(apt.perSessionPrice ?? apt.amount ?? 0) || 0}
                           </span>
                         </div>
                       </div>

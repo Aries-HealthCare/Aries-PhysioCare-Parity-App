@@ -1,6 +1,6 @@
 import { createBackendProxy } from '@/lib/api-proxy';
 
-const handlers = createBackendProxy('app');
+const handlers = createBackendProxy('v1');
 
 export const dynamic = 'force-dynamic';
 export const GET = handlers.GET;

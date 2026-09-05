@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useProviderAuth } from '@/services/provider-auth-context';
 import { providerApi } from '@/services/provider-api';
+import { useRealtimeEvent } from '@/services/provider-realtime';
 import {
   Wallet,
   TrendingUp,
@@ -52,6 +53,7 @@ export default function ProviderWalletPage() {
   const [transactions, setTransactions] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [isWithdrawing, setIsWithdrawing] = useState(false);
   const [withdrawFeedback, setWithdrawFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -109,8 +111,9 @@ export default function ProviderWalletPage() {
       ]);
       setWalletData(balanceData);
       setTransactions(txData);
-    } catch (e) {
-      console.warn('Wallet load error', e);
+      setLoadError(null);
+    } catch (e: any) {
+      setLoadError(e?.message || 'Could not load your wallet from the server.');
     } finally {
       setIsLoading(false);
       setRefreshing(false);
@@ -118,6 +121,13 @@ export default function ProviderWalletPage() {
   }, [expertId]);
 
   useEffect(() => { loadWalletData(); }, [loadWalletData]);
+
+  // The backend emits `therapist_wallet_update` into this provider's room whenever the
+  // ledger moves (visit payout, withdrawal, adjustment) and `payment_success` when a
+  // patient payment clears — the same signals the mobile wallet listens to.
+  useRealtimeEvent(['therapist_wallet_update', 'payment_success'], () => {
+    void loadWalletData(true);
+  });
 
   const handleWithdrawal = async () => {
     const amount = parseFloat(withdrawAmount);
@@ -165,6 +175,15 @@ export default function ProviderWalletPage() {
           {refreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
         </button>
       </div>
+
+      {loadError && (
+        <div className="p-4 rounded-2xl text-xs font-bold flex items-center gap-2 bg-red-500/10 text-red-600 border border-red-500/30">
+          <span>{loadError}</span>
+          <button type="button" onClick={() => loadWalletData(true)} className="ml-auto underline">
+            Retry
+          </button>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="flex items-center justify-center py-16">

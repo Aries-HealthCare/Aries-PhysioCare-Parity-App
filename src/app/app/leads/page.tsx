@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { providerApi } from '@/services/provider-api';
+import { useRealtimeEvent, useProviderRealtime } from '@/services/provider-realtime';
 import {
   Radio,
   MapPin,
@@ -70,6 +71,7 @@ export default function ProviderLeadsPage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [passDialogLead, setPassDialogLead] = useState<any | null>(null);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadLeads = useCallback(async (showRefresh = false) => {
     if (showRefresh) setIsRefreshing(true);
@@ -78,8 +80,11 @@ export default function ProviderLeadsPage() {
       const data = await providerApi.getLeads();
       setNewLeads(data.newLeads || []);
       setAcquiredLeads(data.acquiredLeads || []);
-    } catch (e) {
-      console.warn('Leads load error', e);
+      setLoadError(null);
+    } catch (e: any) {
+      // Surface the failure instead of rendering an empty stream that looks like
+      // "no leads right now" — that is precisely the drift from the mobile app.
+      setLoadError(e?.message || 'Could not load your lead stream from the server.');
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -87,6 +92,13 @@ export default function ProviderLeadsPage() {
   }, []);
 
   useEffect(() => { loadLeads(); }, [loadLeads]);
+
+  // Live sync: the backend emits `new_broadcast` when a lead is dispatched to this
+  // provider's room and `lead_approved` when admin confirms one — the same events the
+  // Flutter `SocketService` listens for, so both apps update at the same moment.
+  useRealtimeEvent(['new_broadcast', 'lead_approved'], () => {
+    void loadLeads(true);
+  });
 
   const showFeedback = (type: 'success' | 'error' | 'info', text: string) => {
     setFeedback({ type, text });
@@ -154,6 +166,16 @@ export default function ProviderLeadsPage() {
       </div>
 
       {/* Feedback banner */}
+      {loadError && (
+        <div className="p-4 rounded-2xl text-xs font-bold flex items-center gap-2 bg-red-500/10 text-red-600 border border-red-500/30">
+          <XCircle className="w-4 h-4 shrink-0" />
+          <span>{loadError}</span>
+          <button type="button" onClick={() => loadLeads(true)} className="ml-auto underline">
+            Retry
+          </button>
+        </div>
+      )}
+
       {feedback && (
         <div className={`p-4 rounded-2xl text-xs font-bold flex items-center gap-2 animate-in fade-in ${
           feedback.type === 'success' ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/30' :

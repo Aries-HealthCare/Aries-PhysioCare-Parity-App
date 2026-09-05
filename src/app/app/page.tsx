@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useProviderAuth } from '@/services/provider-auth-context';
 import { providerApi } from '@/services/provider-api';
+import { useRealtimeEvent, useProviderRealtime } from '@/services/provider-realtime';
 import {
   TrendingUp,
   CalendarCheck,
@@ -62,6 +63,9 @@ export default function ProviderDashboardPage() {
   const [nextAppointment, setNextAppointment] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [targetError, setTargetError] = useState<string | null>(null);
+  const [isSavingTarget, setIsSavingTarget] = useState(false);
 
   const therapistName = user?.fullName || user?.name
     || (user?.firstName ? `${user.firstName} ${user?.lastName || ''}`.trim() : 'Provider');
@@ -74,8 +78,9 @@ export default function ProviderDashboardPage() {
   const currentMonthEntry = user?.monthlyTargets?.find(
     (t) => t.month === now.getMonth() + 1 && t.year === now.getFullYear()
   );
-  const monthlyTarget = currentMonthEntry?.target ?? stats.monthlyTarget ?? 10000;
-  const monthlyAchieved = currentMonthEntry?.achieved ?? stats.monthlyAchieved ?? (stats.totalEarnings ?? 0);
+  const monthlyTarget = currentMonthEntry?.target ?? stats.monthlyTarget ?? user?.monthlyTargetEarnings ?? 0;
+  const monthlyAchieved =
+    currentMonthEntry?.achieved ?? stats.monthlyAchieved ?? user?.monthlyCurrentEarnings ?? 0;
   const progress = monthlyTarget > 0 ? Math.min(monthlyAchieved / monthlyTarget, 1) : 0;
 
   const loadDashboard = useCallback(async () => {
@@ -102,8 +107,9 @@ export default function ProviderDashboardPage() {
         !['Completed', 'Cancelled', 'completed', 'cancelled'].includes(a.status || '')
       );
       setNextAppointment(upcoming || null);
-    } catch (e) {
-      console.warn('Dashboard load error', e);
+      setLoadError(null);
+    } catch (e: any) {
+      setLoadError(e?.message || 'Could not load your dashboard from the server.');
     } finally {
       setIsLoading(false);
     }
@@ -112,6 +118,14 @@ export default function ProviderDashboardPage() {
   useEffect(() => {
     loadDashboard();
   }, [loadDashboard]);
+
+  // Live sync with the same backend events the Flutter app reacts to.
+  useRealtimeEvent(
+    ['new_broadcast', 'lead_approved', 'payment_success', 'therapist_wallet_update'],
+    () => {
+      void loadDashboard();
+    }
+  );
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -189,16 +203,48 @@ export default function ProviderDashboardPage() {
   const remainingRevenue = Math.max(0, monthlyTarget - monthlyAchieved);
   const dailyVisitsRequired = Math.ceil(remainingRevenue / (720 * daysRemaining));
 
-  const handleSaveTarget = () => {
-    const val = parseInt(customTargetInput) || 60000;
-    setStats((prev) => ({ ...prev, monthlyTarget: val }));
-    setShowTargetModal(false);
-    setSavedTargetFeedback(true);
-    setTimeout(() => setSavedTargetFeedback(false), 3000);
+  /**
+   * Persists through POST /api/app/expert/setMonthlyTarget — the same endpoint
+   * `DashboardNotifier.setMonthlyTarget` calls — then refreshes both the profile and
+   * the dashboard so the phone and the browser show the same target.
+   */
+  const handleSaveTarget = async () => {
+    const val = parseInt(customTargetInput, 10);
+    if (!val || val <= 0) {
+      setTargetError('Enter a target amount greater than zero.');
+      return;
+    }
+    setIsSavingTarget(true);
+    setTargetError(null);
+    try {
+      const res = await providerApi.setMonthlyTarget(val);
+      if (!res.success) {
+        setTargetError(res.message || 'Could not save your monthly target.');
+        return;
+      }
+      await Promise.all([refreshProfile(), loadDashboard()]);
+      setShowTargetModal(false);
+      setSavedTargetFeedback(true);
+      setTimeout(() => setSavedTargetFeedback(false), 3000);
+    } catch (err: any) {
+      setTargetError(err?.message || 'Could not save your monthly target.');
+    } finally {
+      setIsSavingTarget(false);
+    }
   };
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
+      {loadError && (
+        <div className="p-4 rounded-2xl text-xs font-bold flex items-center gap-2 bg-red-500/10 text-red-600 border border-red-500/30">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span>{loadError}</span>
+          <button type="button" onClick={() => loadDashboard()} className="ml-auto underline">
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Profile Header Card — matches ProfileCard in dashboard_screen.dart */}
       <div className="bg-gradient-to-r from-card via-card to-primary/5 border border-border/80 rounded-3xl p-6 sm:p-8 shadow-sm relative overflow-hidden">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
@@ -211,9 +257,15 @@ export default function ProviderDashboardPage() {
                 <Star className="w-3.5 h-3.5 fill-amber-500" />
                 <span>{rating} Rating</span>
               </div>
-              <span className="text-xs font-bold text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                ✓ Verified Physiotherapist
-              </span>
+              {user?.isVerified || user?.status === 'Approved' ? (
+                <span className="text-xs font-bold text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                  ✓ Verified {user?.designation || 'Physiotherapist'}
+                </span>
+              ) : (
+                <span className="text-xs font-bold text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+                  Verification pending
+                </span>
+              )}
               {/* Duty toggle */}
               <button
                 onClick={toggleDutyStatus}
@@ -230,7 +282,8 @@ export default function ProviderDashboardPage() {
               Welcome, {therapistName}
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Clinical territory: <strong className="text-foreground">{user?.city || 'Mumbai'}</strong>
+              Clinical territory:{' '}
+              <strong className="text-foreground">{user?.city || 'Not set'}</strong>
               {todayAppointments.length > 0 && ` • ${todayAppointments.length} visits today`}
             </p>
           </div>
@@ -558,8 +611,18 @@ export default function ProviderDashboardPage() {
               </div>
             </div>
 
-            <Button onClick={handleSaveTarget} className="w-full h-11 rounded-2xl bg-primary text-white font-extrabold text-xs">
-              Save Monthly Goal
+            {targetError && (
+              <div className="p-3 bg-destructive/10 border border-destructive/30 text-destructive text-xs font-bold rounded-2xl">
+                {targetError}
+              </div>
+            )}
+
+            <Button
+              onClick={handleSaveTarget}
+              disabled={isSavingTarget}
+              className="w-full h-11 rounded-2xl bg-primary text-white font-extrabold text-xs"
+            >
+              {isSavingTarget ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save Monthly Goal'}
             </Button>
           </div>
         </div>

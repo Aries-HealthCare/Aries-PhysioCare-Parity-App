@@ -42,27 +42,64 @@ export default function ProviderInvoicesPage() {
   const [selectedInvoice, setSelectedInvoice] = useState<InvoiceRecord | null>(null);
   const [showGenerator, setShowGenerator] = useState(false);
   const [showQrModal, setShowQrModal] = useState(false);
-  const [qrAmount, setQrAmount] = useState('1200');
+  const [qrAmount, setQrAmount] = useState('');
+  const [qrPayload, setQrPayload] = useState<any | null>(null);
+  const [qrError, setQrError] = useState<string | null>(null);
+  const [isGeneratingQr, setIsGeneratingQr] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [isIssuing, setIsIssuing] = useState(false);
+  const [issueError, setIssueError] = useState<string | null>(null);
+
+  const PAID_STATUSES = ['paid', 'completed', 'collected', 'prepaid', 'waived', 'free'];
+
+  /**
+   * Invoice rows are derived from real appointments — amount, payment mode and payment
+   * status come from the appointment record, so a session the backend still shows as
+   * unpaid is never rendered as PAID here. Invoice numbers are only shown once the
+   * backend has actually issued one.
+   */
+  const loadInvoices = React.useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const appts = await providerApi.getAppointments();
+      const rows: InvoiceRecord[] = (appts || []).map((a: any, idx: number) => {
+        const fee = Number(a.perSessionPrice ?? a.sessionFee ?? a.amount ?? 0) || 0;
+        const addOns = Number(a.addOnFees ?? a.addOnsTotal ?? 0) || 0;
+        const total = Number(a.totalAmount ?? fee + addOns) || fee + addOns;
+        const paymentStatus = String(a.paymentStatus || '').toLowerCase();
+        return {
+          id: a._id || a.id || `appt_${idx}`,
+          invoiceNumber: a.invoiceNumber || a.invoiceNo || '—',
+          patientName:
+            a.patient?.fullName || a.patient?.name || a.patientName || a.customerName || 'Patient',
+          date: a.appointmentDate
+            ? new Date(a.appointmentDate).toLocaleDateString('en-IN', {
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric',
+              })
+            : '—',
+          service: a.treatmentType || a.service || a.condition || 'Physical therapy session',
+          sessionFee: fee,
+          addOnsTotal: addOns,
+          totalAmount: total,
+          paymentMode: a.paymentMethod || a.paymentMode || '—',
+          status: PAID_STATUSES.includes(paymentStatus) ? 'PAID' : 'PENDING',
+        };
+      });
+      setInvoices(rows);
+      setLoadError(null);
+    } catch (err: any) {
+      setLoadError(err?.message || 'Could not load your invoices from the server.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   React.useEffect(() => {
-    providerApi.getAppointments().then((appts) => {
-      if (Array.isArray(appts) && appts.length > 0) {
-        const invs: InvoiceRecord[] = appts.map((a: any, idx: number) => ({
-          id: a.id || a._id || `inv_${idx}`,
-          invoiceNumber: `AX-INV-${new Date().getFullYear()}-${48900 + idx}`,
-          patientName: a.patientName || a.customerName || 'Patient',
-          date: a.date || a.scheduledDate || new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }),
-          service: a.service || a.condition || 'Physical Therapy Session',
-          sessionFee: a.sessionFee || a.amount || 1200,
-          addOnsTotal: 0,
-          totalAmount: a.sessionFee || a.amount || 1200,
-          paymentMode: a.paymentMode || 'Online App',
-          status: (a.status === 'COMPLETED' ? 'PAID' : 'PAID') as 'PAID' | 'PENDING',
-        }));
-        setInvoices(invs);
-      }
-    });
-  }, []);
+    void loadInvoices();
+  }, [loadInvoices]);
 
   // Generator form state
   const [genPatient, setGenPatient] = useState('');
@@ -71,32 +108,87 @@ export default function ProviderInvoicesPage() {
   const [genAddOn, setGenAddOn] = useState('0');
   const [genMode, setGenMode] = useState('UPI');
 
-  const handleCreateInvoice = (e: React.FormEvent) => {
+  /**
+   * Issues the invoice through POST /api/app/patient/sendInvoice — the backend mints the
+   * number and delivers it to the patient, so the number shown is the real one.
+   */
+  const handleCreateInvoice = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!genPatient.trim()) return;
-    const fee = parseFloat(genFee) || 1200;
+    const fee = parseFloat(genFee) || 0;
     const addOn = parseFloat(genAddOn) || 0;
-    const newInv: InvoiceRecord = {
-      id: 'inv_' + Date.now(),
-      invoiceNumber: `AX-INV-${new Date().getFullYear()}-${Math.floor(10000 + Math.random() * 90000)}`,
-      patientName: genPatient,
-      date: new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }),
-      service: genService,
-      sessionFee: fee,
-      addOnsTotal: addOn,
-      totalAmount: fee + addOn,
-      paymentMode: genMode,
-      status: 'PAID',
-    };
-    setInvoices([newInv, ...invoices]);
-    setSelectedInvoice(newInv);
-    setShowGenerator(false);
-    setGenPatient('');
+
+    setIsIssuing(true);
+    setIssueError(null);
+    try {
+      const res = await providerApi.generateInvoice({
+        patientName: genPatient.trim(),
+        treatmentType: genService,
+        sessionNumber: 1,
+        totalSessions: 1,
+        sessionFee: fee,
+        addOns: addOn > 0 ? [{ name: 'Add-on services', amount: addOn }] : [],
+        paymentMethod: genMode,
+      });
+
+      if (!res.success) {
+        setIssueError(res.message || 'The invoice could not be issued.');
+        return;
+      }
+
+      const issued: InvoiceRecord = {
+        id: res.invoiceNumber || 'inv_' + Date.now(),
+        invoiceNumber: res.invoiceNumber || '—',
+        patientName: genPatient.trim(),
+        date: new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }),
+        service: genService,
+        sessionFee: fee,
+        addOnsTotal: addOn,
+        totalAmount: fee + addOn,
+        paymentMode: genMode,
+        status: 'PENDING',
+      };
+      setInvoices([issued, ...invoices]);
+      setSelectedInvoice(issued);
+      setShowGenerator(false);
+      setGenPatient('');
+      void loadInvoices();
+    } catch (err: any) {
+      setIssueError(err?.message || 'The invoice could not be issued.');
+    } finally {
+      setIsIssuing(false);
+    }
+  };
+
+  /** POST /api/app/payments/generate-qr — the same on-spot UPI QR the mobile app shows. */
+  const handleGenerateQr = async () => {
+    const amount = parseFloat(qrAmount);
+    if (!amount || amount <= 0) {
+      setQrError('Enter an amount greater than zero.');
+      return;
+    }
+    setIsGeneratingQr(true);
+    setQrError(null);
+    try {
+      const payload = await providerApi.generatePaymentQr({ amount });
+      setQrPayload(payload);
+    } catch (err: any) {
+      setQrError(err?.message || 'Could not generate a payment QR.');
+      setQrPayload(null);
+    } finally {
+      setIsGeneratingQr(false);
+    }
   };
 
   const handleShareWhatsApp = (inv: InvoiceRecord) => {
-    const text = `Official Aries Healthcare Tax Receipt\nInvoice: ${inv.invoiceNumber}\nPatient: ${inv.patientName}\nAmount Paid: ₹${inv.totalAmount.toLocaleString('en-IN')}\nDoctor: Dr. ${user?.fullName || 'Physiotherapist'}\nDownload Receipt: https://ariesphysiocare.com/receipt/${inv.invoiceNumber}`;
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+    const lines = [
+      'Aries Healthcare payment receipt',
+      inv.invoiceNumber && inv.invoiceNumber !== '—' ? `Invoice: ${inv.invoiceNumber}` : null,
+      `Patient: ${inv.patientName}`,
+      `Amount: ₹${inv.totalAmount.toLocaleString('en-IN')} (${inv.status === 'PAID' ? 'paid' : 'due'})`,
+      `Therapist: ${user?.fullName || 'Physiotherapist'}`,
+    ].filter(Boolean);
+    window.open(`https://wa.me/?text=${encodeURIComponent(lines.join('\n'))}`, '_blank');
   };
 
   return (
@@ -356,17 +448,50 @@ export default function ProviderInvoicesPage() {
               />
             </div>
 
-            {/* QR Code Canvas */}
-            <div className="p-5 bg-white rounded-3xl border-2 border-border shadow-inner mx-auto w-fit">
-              <QrCode className="w-44 h-44 text-black mx-auto" />
-            </div>
+            {qrError && (
+              <div className="p-3 bg-destructive/10 border border-destructive/30 text-destructive text-xs font-bold rounded-2xl">
+                {qrError}
+              </div>
+            )}
 
-            <p className="text-xs text-muted-foreground">
-              Ask patient to scan with Google Pay, PhonePe, Paytm, or BHIM. Instant credit to your verified wallet.
-            </p>
+            {/* The QR image/string is issued by the payment gateway through the backend —
+                nothing is rendered until the server returns one. */}
+            {qrPayload ? (
+              <div className="space-y-2">
+                <div className="p-5 bg-white rounded-3xl border-2 border-border shadow-inner mx-auto w-fit">
+                  {qrPayload.qrImage || qrPayload.qrCodeUrl || qrPayload.image ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={qrPayload.qrImage || qrPayload.qrCodeUrl || qrPayload.image}
+                      alt="UPI payment QR"
+                      className="w-44 h-44 mx-auto"
+                    />
+                  ) : (
+                    <p className="text-[10px] font-mono text-black break-all max-w-[176px]">
+                      {qrPayload.upiLink || qrPayload.qrString || qrPayload.payload || 'QR issued'}
+                    </p>
+                  )}
+                </div>
+                {qrPayload.orderId && (
+                  <p className="text-[10px] font-mono text-muted-foreground">Order {qrPayload.orderId}</p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Ask the patient to scan with any UPI app. The credit appears in your wallet once the
+                  gateway confirms it.
+                </p>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Enter the amount and generate a QR issued by the payment gateway.
+              </p>
+            )}
 
-            <Button onClick={() => setShowQrModal(false)} className="w-full h-11 rounded-2xl bg-primary text-white font-bold text-xs">
-              Done / Payment Received
+            <Button
+              onClick={handleGenerateQr}
+              disabled={isGeneratingQr}
+              className="w-full h-11 rounded-2xl bg-primary text-white font-bold text-xs"
+            >
+              {isGeneratingQr ? 'Generating…' : qrPayload ? 'Regenerate QR' : 'Generate UPI QR'}
             </Button>
           </div>
         </div>

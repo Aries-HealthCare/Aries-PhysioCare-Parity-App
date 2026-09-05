@@ -71,7 +71,7 @@ export default function ProviderProfilePage() {
   const [streetAddress, setStreetAddress] = useState('');
   const [addressLineTwo, setAddressLineTwo] = useState('');
   const [area, setArea] = useState('');
-  const [city, setCity] = useState('Mumbai');
+  const [city, setCity] = useState('');
   const [state, setState] = useState('Maharashtra');
   const [zipCode, setZipCode] = useState('');
 
@@ -122,7 +122,7 @@ export default function ProviderProfilePage() {
 
   // Emergency Contacts
   const [emergencyName, setEmergencyName] = useState('Emergency SOS Team');
-  const [emergencyPhone, setEmergencyPhone] = useState('+91 98201 44219');
+  const [emergencyPhone, setEmergencyPhone] = useState('');
   const [emergencyRelation, setEmergencyRelation] = useState('Clinical Lead');
   const [secEmergencyName, setSecEmergencyName] = useState('');
   const [secEmergencyPhone, setSecEmergencyPhone] = useState('');
@@ -130,6 +130,7 @@ export default function ProviderProfilePage() {
 
   // UI state
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -304,12 +305,20 @@ export default function ProviderProfilePage() {
         ],
       };
 
-      await providerApi.updateProfile(payload);
-      updateUserData(payload);
+      // POST /api/app/expert/editProfile — the only profile-write route the backend
+      // exposes. Local state is only updated with what the server actually stored, and
+      // a rejected save is reported instead of showing a success banner.
+      const res = await providerApi.updateProfile(payload);
+      if (!res.success) {
+        setSaveError(res.message || 'Your profile could not be saved.');
+        return;
+      }
+      updateUserData(res.result || payload);
+      setSaveError(null);
       setSavedSuccess(true);
       setTimeout(() => setSavedSuccess(false), 3000);
     } catch (err: any) {
-      console.warn('Profile update error:', err);
+      setSaveError(err?.message || 'Your profile could not be saved. Please try again.');
     } finally {
       setIsSaving(false);
     }
@@ -418,6 +427,12 @@ export default function ProviderProfilePage() {
           </div>
         </div>
       </div>
+
+      {saveError && (
+        <div className="p-4 rounded-2xl text-xs font-bold flex items-center gap-2 bg-red-500/10 text-red-600 border border-red-500/30">
+          <span>{saveError}</span>
+        </div>
+      )}
 
       {/* Tabs Bar matching mobile parity */}
       <div className="flex items-center gap-1.5 p-1.5 bg-muted/40 border border-border rounded-2xl overflow-x-auto no-scrollbar text-xs font-bold font-outfit">

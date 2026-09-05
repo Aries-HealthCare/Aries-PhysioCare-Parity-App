@@ -7,8 +7,31 @@
  * to the central MongoDB database.
  */
 
-const rawApiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://api.ariesxpert.com';
-const API_BASE_URL = rawApiUrl.replace(/\/api(\/v1)?\/?$/, '').replace(/\/$/, '') || 'https://api.ariesxpert.com';
+import {
+  apiGet,
+  apiPost,
+  apiPut,
+  apiPatch,
+  apiDelete,
+  ApiError,
+  unwrap,
+  unwrapList,
+  readToken,
+  writeToken,
+  clearStoredToken,
+} from './api-transport';
+import { getBackendOrigin } from '@/lib/backend-api-config';
+
+/**
+ * Request prefix for mobile-shaped paths.
+ *
+ * In the browser this is empty so every call stays same-origin and is forwarded by the
+ * Next route handlers in `src/app/api/{app,admin,v1}/[...path]/route.ts` — the browser
+ * cannot call `api.ariesxpert.com` directly without tripping CORS. On the server the
+ * backend origin is used directly. Either way the path that reaches the backend is
+ * byte-identical to the one the Flutter app sends.
+ */
+const API_BASE_URL = typeof window !== 'undefined' ? '' : getBackendOrigin();
 
 import { BUILTIN_34_ASSESSMENT_FORMS } from './assessment-forms-data';
 export { BUILTIN_34_ASSESSMENT_FORMS };
@@ -162,6 +185,71 @@ export interface MobileExpertProfile {
   rating?: number;
   totalReviews?: number;
   monthlyTargets?: Array<{ month: number; year: number; target: number; achieved: number }>;
+
+  // ── Fields the mobile `UserModel` reads off the therapist record / therapistProfile.
+  // Without these the parity app cannot render the target tracker, badges, scores and
+  // notification preferences that the mobile app shows. (ariesxpertv2 user_model.dart)
+  totalEarning?: number; // server field name; `totalEarnings` is the alias
+  memberSince?: string;
+  createdAt?: string;
+  qualification?: string;
+  currentlyWorkingAt?: string;
+  serviceTypes?: string[];
+  hasModalities?: boolean;
+  hasOwnClinic?: boolean;
+  clinicName?: string;
+  clinicId?: string;
+
+  // Targets & performance (mobile reads these from `therapistProfile`)
+  monthlyVisitTarget?: number;
+  monthlyVisitAchievement?: number;
+  visitTargetProgress?: number;
+  monthlyTargetEarnings?: number;
+  monthlyCurrentEarnings?: number;
+  monthlyEarningsGap?: number;
+  isTargetAiAdjusted?: boolean;
+  therapistOpportunityScore?: number;
+  therapistHappinessScore?: number;
+  badges?: string[];
+  cityRankPercentile?: number;
+  qaScoreAverage?: number;
+
+  // Settings parity (mobile settings screen)
+  enablePushNotification?: boolean;
+  enableEmailNotification?: boolean;
+  enableWhatsAppNotification?: boolean;
+  enableSMSNotification?: boolean;
+  notificationTone?: string;
+  quietHoursFrom?: string;
+  quietHoursTo?: string;
+  isQuietHoursEnabled?: boolean;
+  isProfileVisible?: boolean;
+  isActivityTracking?: boolean;
+
+  // Onboarding tour parity
+  onboardingTourCompleted?: boolean;
+  onboardingTourCompletedAt?: string;
+  onboardingTourViewCount?: number;
+
+  // KYC document URLs the mobile document vault renders
+  aadharCardUrl?: string;
+  aadharCardBackUrl?: string;
+  panCardUrl?: string;
+  cvResumeUrl?: string;
+  extraCertificationsUrls?: string[];
+  drivingLicenseNumber?: string;
+  drivingLicenseUrl?: string;
+  bankCancelledChequeUrl?: string;
+  bankStatementUrl?: string;
+  bankVerificationLetterUrl?: string;
+  passportOrBrpUrl?: string;
+  personalausweisUrl?: string;
+  anmeldungDocumentUrl?: string;
+  emiratesIdUrl?: string;
+  passportVisaUrl?: string;
+  governmentPhotoIdUrl?: string;
+  ssnNumber?: string;
+  nationalInsuranceNumber?: string;
 }
 
 export interface DynamicQuestion {
@@ -258,36 +346,16 @@ export interface FinalizeVisitPayload {
 }
 
 class ProviderApiService {
-  private token: string | null = null;
-
-  constructor() {
-    if (typeof window !== 'undefined') {
-      this.token = localStorage.getItem('jwt_token') || localStorage.getItem('provider_jwt');
-    }
-  }
-
   public getToken(): string | null {
-    if (!this.token && typeof window !== 'undefined') {
-      this.token = localStorage.getItem('jwt_token') || localStorage.getItem('provider_jwt');
-    }
-    return this.token;
+    return readToken();
   }
 
   public saveToken(token: string) {
-    this.token = token;
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('jwt_token', token);
-      localStorage.setItem('provider_jwt', token);
-    }
+    writeToken(token);
   }
 
   public clearToken() {
-    this.token = null;
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('jwt_token');
-      localStorage.removeItem('provider_jwt');
-      localStorage.removeItem('expert_user_data');
-    }
+    clearStoredToken();
   }
 
   private getHeaders(isMultipart = false): HeadersInit {
@@ -308,132 +376,65 @@ class ProviderApiService {
   // AUTH & ONBOARDING ENDPOINTS (REAL MONGODB BACKEND)
   // ==========================================
 
+  /**
+   * POST /api/app/expert/sendOrResendOTPtoUser
+   * Same body as `ApiService.sendOrResendOTPtoUser` / `expertLoginFromMobile`.
+   */
   public async sendOTP(mobileNo: string): Promise<{ success: boolean; message?: string; code?: string }> {
     const cleanMobile = mobileNo.replace(/\D/g, '').slice(-10);
-    const endpoints = [
-      `/api/app/expert/sendOrResendOTPtoUser`,
-      `${API_BASE_URL}/api/app/expert/sendOrResendOTPtoUser`,
-    ];
-
-    for (const url of endpoints) {
-      try {
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: this.getHeaders(),
-          body: JSON.stringify({ mobileNo: cleanMobile, cc: '91' }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          return {
-            success: data.success !== false,
-            message: data.message || `Verification code sent to +91 ${cleanMobile}`,
-            code: data.code,
-          };
-        }
-      } catch (err) {
-        console.warn(`[API] sendOTP attempt failed on ${url}:`, err);
-      }
-    }
-
+    const res = await apiPost('/api/app/expert/sendOrResendOTPtoUser', {
+      mobileNo: cleanMobile,
+      cc: '91',
+    });
     return {
-      success: true,
-      message: `Verification code sent to +91 ${cleanMobile} via SMS.`,
+      success: res.success !== false,
+      message: res.message || `Verification code sent to +91 ${cleanMobile}`,
+      code: (res as any).code,
     };
   }
 
+  /**
+   * POST /api/app/expert/verifyOTPofUser
+   *
+   * On success the backend returns the JWT and the expert document — the same pair the
+   * mobile app stores. There is deliberately no offline fallback: minting a local
+   * session would produce a signed-in UI with no backend data behind it, which is
+   * exactly the drift this app exists to avoid.
+   */
   public async verifyOTP(
     mobileNo: string,
     otp: string
   ): Promise<{ success: boolean; token?: string; result?: MobileExpertProfile; message?: string }> {
     const cleanMobile = mobileNo.replace(/\D/g, '').slice(-10);
-    const endpoints = [
-      `/api/app/expert/verifyOTPofUser`,
-      `${API_BASE_URL}/api/app/expert/verifyOTPofUser`,
-    ];
+    const res = await apiPost('/api/app/expert/verifyOTPofUser', {
+      mobileNo: cleanMobile,
+      otp,
+    });
 
-    for (const url of endpoints) {
-      try {
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: this.getHeaders(),
-          body: JSON.stringify({ mobileNo: cleanMobile, otp }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          const token =
-            data.accessToken ||
-            data.token ||
-            data.result?.token ||
-            data.result?.accessToken;
-          const expert =
-            data.expert ||
-            data.result?.expert ||
-            (data.result && typeof data.result === 'object' && data.result._id ? data.result : null);
+    const token =
+      (res as any).accessToken ||
+      (res as any).token ||
+      (res as any).result?.token ||
+      (res as any).result?.accessToken;
 
-          if (token) {
-            this.saveToken(token);
-          }
+    if (token) this.saveToken(token);
 
-          if (data.success !== false) {
-            // If real expert document returned from MongoDB, normalize and return
-            if (expert) {
-              const normalizedExpert = this.normalizeExpertProfile(expert, cleanMobile);
-              return {
-                success: true,
-                token,
-                result: normalizedExpert,
-                message: data.message || 'OTP verified successfully',
-              };
-            }
-
-            return {
-              success: true,
-              token,
-              result: {
-                _id: 'exp_' + cleanMobile,
-                fullName: '',
-                phone: cleanMobile,
-                email: `${cleanMobile}@ariesxpert.com`,
-                city: '',
-                onboardingStatus: 'pending',
-                onboardingStep: 0,
-                status: 'Active',
-                isTherapistActive: true,
-                isProfileActive: true,
-                isVerified: false,
-                rating: 0,
-                totalReviews: 0,
-                walletAmount: 0,
-                totalEarnings: 0,
-                ariesId: `AX-IND-${cleanMobile.slice(-4)}`,
-              },
-              message: data.message,
-            };
-          }
-        }
-      } catch (err) {
-        console.warn(`[API] verifyOTP attempt failed on ${url}:`, err);
-      }
+    if (res.success === false) {
+      return { success: false, message: res.message || 'That verification code was not accepted.' };
     }
+
+    const expert =
+      (res as any).expert ||
+      (res as any).result?.expert ||
+      ((res as any).result && typeof (res as any).result === 'object' && (res as any).result._id
+        ? (res as any).result
+        : null);
 
     return {
       success: true,
-      token: 'jwt_token_' + Date.now(),
-      result: {
-        _id: 'exp_' + cleanMobile,
-        fullName: '',
-        phone: cleanMobile,
-        email: `${cleanMobile}@ariesxpert.com`,
-        city: '',
-        onboardingStep: 0,
-        status: 'Active',
-        isTherapistActive: true,
-        isProfileActive: true,
-        isVerified: false,
-        rating: 0,
-        totalReviews: 0,
-      },
-      message: 'Verified successfully',
+      token,
+      result: expert ? this.normalizeExpertProfile(expert, cleanMobile) : undefined,
+      message: res.message || 'OTP verified successfully',
     };
   }
 
@@ -456,6 +457,27 @@ class ProviderApiService {
     const pInfo = expert.professionalInfo || {};
     const bInfo = expert.bankInfo || {};
     const aInfo = expert.areaOfServiceInfo || {};
+
+    // Mobile's `UserModel.fromJson` reads targets, scores and badges off the nested
+    // `therapistProfile` document, falling back to the root when the backend has
+    // already flattened it. Without this the parity app renders empty targets while
+    // the mobile app shows real ones.
+    const tProfile =
+      expert.therapistProfile && typeof expert.therapistProfile === 'object'
+        ? expert.therapistProfile
+        : expert;
+
+    const toBool = (value: any, fallback: boolean): boolean => {
+      if (value === undefined || value === null) return fallback;
+      if (typeof value === 'boolean') return value;
+      if (typeof value === 'string') return value.toLowerCase() === 'true';
+      return !!value;
+    };
+    const toNum = (value: any): number | undefined => {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : undefined;
+    };
+    const notif = expert.settings?.notifications || expert.notifications || {};
 
     const regCertUrl = pInfo.registrationCertificate?.url || (typeof pInfo.registrationCertificate === 'string' ? pInfo.registrationCertificate : expert.registrationCertificateUrl || expert.registrationCertificate);
     const degCertUrl = pInfo.degreeCertificate?.url || (typeof pInfo.degreeCertificate === 'string' ? pInfo.degreeCertificate : expert.degreeCertificateUrl || expert.degreeCertificate);
@@ -483,6 +505,12 @@ class ProviderApiService {
     return {
       _id: expert._id || expert.id || ('exp_' + cleanMobile),
       id: expert._id || expert.id,
+      // Mobile's `UserModel` resolves `therapistId` from the nested therapistProfile,
+      // falling back to the root `_id`. The socket room (`therapist-<id>`) and every
+      // `{ expert | therapist }` request body key off this id.
+      therapistId:
+        (expert.therapistProfile?._id || expert.therapistProfile?.id || expert.therapistId || expert._id || expert.id)?.toString(),
+      uid: (expert.uid || expert._id || expert.id)?.toString(),
       fullName: expert.fullName || `${expert.firstName || ''} ${expert.lastName || ''}`.trim() || expert.name || '',
       name: expert.fullName || `${expert.firstName || ''} ${expert.lastName || ''}`.trim() || expert.name || '',
       firstName: expert.firstName || expert.fullName?.split(' ')[0] || '',
@@ -576,6 +604,77 @@ class ProviderApiService {
       },
 
       // Area of Service Info
+      // ── Mobile UserModel parity fields ─────────────────────────────────────
+      totalEarning: toNum(expert.totalEarning ?? expert.totalEarnings) ?? 0,
+      clinicId: expert.clinicId ? String(expert.clinicId) : undefined,
+      memberSince: expert.memberSince || expert.createdAt,
+      createdAt: expert.createdAt,
+      qualification: pInfo.qualification || expert.qualification || '',
+      currentlyWorkingAt: pInfo.currentlyWorkingAt || expert.currentlyWorkingAt || '',
+      serviceTypes: Array.isArray(pInfo.serviceTypes) ? pInfo.serviceTypes : (expert.serviceTypes || []),
+      hasModalities: pInfo.hasModalities ?? expert.hasModalities ?? false,
+      hasOwnClinic: pInfo.hasOwnClinic ?? expert.hasOwnClinic ?? false,
+      clinicName: pInfo.clinicName || expert.clinicName || '',
+      monthlyTargets: Array.isArray(expert.monthlyTargets) ? expert.monthlyTargets : [],
+
+      // Targets & performance (therapistProfile-scoped in mobile)
+      monthlyVisitTarget: toNum(tProfile.monthlyVisitTarget) ?? 5,
+      monthlyVisitAchievement: toNum(tProfile.monthlyVisitAchievement) ?? 0,
+      visitTargetProgress: toNum(tProfile.visitTargetProgress) ?? 0,
+      monthlyTargetEarnings: toNum(tProfile.monthlyTargetEarnings),
+      monthlyCurrentEarnings: toNum(tProfile.monthlyCurrentEarnings),
+      monthlyEarningsGap: toNum(tProfile.monthlyEarningsGap),
+      isTargetAiAdjusted: tProfile.isTargetAiAdjusted === true,
+      therapistOpportunityScore: toNum(tProfile.therapistOpportunityScore),
+      therapistHappinessScore: toNum(tProfile.therapistHappinessScore),
+      badges: Array.isArray(tProfile.badges) ? tProfile.badges.map((b: any) => String(b)) : [],
+      cityRankPercentile: toNum(tProfile.cityRankPercentile),
+      qaScoreAverage: toNum(tProfile.qaScoreAverage),
+
+      // Settings parity
+      enablePushNotification: toBool(expert.enablePushNotification ?? notif.pushNotifications, true),
+      enableEmailNotification: toBool(expert.enableEmailNotification ?? notif.emailNotifications, true),
+      enableWhatsAppNotification: toBool(expert.enableWhatsAppNotification ?? notif.whatsappNotifications, false),
+      enableSMSNotification: toBool(expert.enableSMSNotification ?? notif.smsNotifications, true),
+      notificationTone: expert.notificationTone ? String(expert.notificationTone) : 'default',
+      quietHoursFrom: expert.quietHoursFrom || '00:00',
+      quietHoursTo: expert.quietHoursTo || '00:00',
+      isQuietHoursEnabled: toBool(expert.isQuietHoursEnabled, false),
+      isProfileVisible: toBool(expert.isProfileVisible, true),
+      isActivityTracking: toBool(expert.isActivityTracking, true),
+      isTherapistSOS: toBool(expert.isTherapistSOS, false),
+
+      // Onboarding tour parity
+      onboardingTourCompleted: tProfile.onboardingTourCompleted === true,
+      onboardingTourCompletedAt: tProfile.onboardingTourCompletedAt,
+      onboardingTourViewCount: toNum(tProfile.onboardingTourViewCount) ?? 0,
+
+      // KYC document URLs (mobile document vault)
+      aadharCardUrl: expert.aadharCard?.url || (typeof expert.aadharCard === 'string' ? expert.aadharCard : undefined),
+      aadharCardBackUrl:
+        expert.aadharCardBack?.url || (typeof expert.aadharCardBack === 'string' ? expert.aadharCardBack : undefined),
+      panCardUrl:
+        expert.panCard?.url ||
+        (typeof expert.panCard === 'string' ? expert.panCard : undefined) ||
+        (typeof bInfo.panCard === 'string' ? bInfo.panCard : bInfo.panCard?.url),
+      cvResumeUrl: cvUrl,
+      extraCertificationsUrls: extraCerts,
+      drivingLicenseNumber: aInfo.drivingLicenseNumber || expert.drivingLicenseNumber || '',
+      drivingLicenseUrl: licenseDocUrl,
+      bankCancelledChequeUrl: chequeUrl,
+      bankStatementUrl: statementUrl,
+      bankVerificationLetterUrl: letterUrl,
+      passportOrBrpUrl: expert.passportOrBrp?.url || (typeof expert.passportOrBrp === 'string' ? expert.passportOrBrp : undefined),
+      personalausweisUrl: expert.personalausweis?.url || (typeof expert.personalausweis === 'string' ? expert.personalausweis : undefined),
+      anmeldungDocumentUrl:
+        expert.anmeldungDocument?.url || (typeof expert.anmeldungDocument === 'string' ? expert.anmeldungDocument : undefined),
+      emiratesIdUrl: expert.emiratesId?.url || (typeof expert.emiratesId === 'string' ? expert.emiratesId : undefined),
+      passportVisaUrl: expert.passportVisa?.url || (typeof expert.passportVisa === 'string' ? expert.passportVisa : undefined),
+      governmentPhotoIdUrl:
+        expert.governmentPhotoId?.url || (typeof expert.governmentPhotoId === 'string' ? expert.governmentPhotoId : undefined),
+      ssnNumber: expert.ssnNumber ? String(expert.ssnNumber) : '',
+      nationalInsuranceNumber: expert.nationalInsuranceNumber ? String(expert.nationalInsuranceNumber) : '',
+
       areaOfServiceInfo: {
         city: aInfo.city || expert.city || '',
         serviceAreas: aInfo.serviceAreas || expert.serviceAreas || [],
@@ -593,765 +692,593 @@ class ProviderApiService {
     };
   }
 
+  /** POST /api/app/expert/loginFromEmail — mirrors `ApiService.expertLoginFromEmail`. */
   public async loginFromEmail(
     email: string,
     password: string
   ): Promise<{ success: boolean; token?: string; result?: MobileExpertProfile; message?: string }> {
-    const endpoints = [
-      `/api/app/expert/loginFromEmail`,
-      `${API_BASE_URL}/api/app/expert/loginFromEmail`,
-    ];
+    const res = await apiPost('/api/app/expert/loginFromEmail', {
+      email: email.toLowerCase().trim(),
+      password,
+    });
 
-    for (const url of endpoints) {
-      try {
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: this.getHeaders(),
-          body: JSON.stringify({ email: email.toLowerCase().trim(), password }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          const token = data.accessToken || data.token || data.result?.token;
-          const expert = data.expert || data.result?.expert || data.result;
+    const token = (res as any).accessToken || (res as any).token || (res as any).result?.token;
+    if (token) this.saveToken(token);
 
-          if (token) {
-            this.saveToken(token);
-          }
-
-          if (data.success !== false) {
-            const normalizedExpert = expert ? this.normalizeExpertProfile(expert) : undefined;
-            return {
-              success: true,
-              token,
-              result: normalizedExpert,
-              message: data.message || 'Login successful',
-            };
-          }
-        }
-      } catch (err) {
-        console.warn(`[API] loginFromEmail attempt failed on ${url}:`, err);
-      }
+    if (res.success === false) {
+      return { success: false, message: res.message || 'Those credentials were not accepted.' };
     }
 
+    const expert = (res as any).expert || (res as any).result?.expert || (res as any).result;
     return {
       success: true,
-      token: 'jwt_email_token_' + Date.now(),
-      result: {
-        _id: 'exp_email_' + Date.now(),
-        fullName: '',
-        email,
-        phone: '',
-        city: '',
-        onboardingStep: 0,
-        status: 'Active',
-        isTherapistActive: true,
-        isProfileActive: true,
-        isVerified: false,
-        rating: 0,
-        totalReviews: 0,
-      },
-      message: 'Logged in successfully',
+      token,
+      result: expert ? this.normalizeExpertProfile(expert) : undefined,
+      message: res.message || 'Login successful',
     };
   }
 
+  /**
+   * POST /api/app/expert/checkOnboardingStatus
+   * Returns the expert record when one exists for this phone number, so the web app
+   * resumes onboarding at the same step the mobile app would.
+   */
   public async checkOnboardingStatus(
     phone: string
   ): Promise<{ success: boolean; result?: MobileExpertProfile; message?: string }> {
-    const endpoints = [
-      '/api/app/expert/checkOnboardingStatus',
-      `${API_BASE_URL}/api/app/expert/checkOnboardingStatus`,
-    ];
     const clean = phone.replace(/\D/g, '').slice(-10);
-
-    for (const url of endpoints) {
-      try {
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: this.getHeaders(),
-          body: JSON.stringify({ phone: clean }),
-        });
-        if (res.ok) {
-          const data = await res.json().catch(() => null);
-          if (data) {
-            const rawExpert = data.expert || data.result || data.data;
-            const normalized = rawExpert ? this.normalizeExpertProfile(rawExpert, clean) : undefined;
-            return { success: data.success !== false, result: normalized, message: data.message };
-          }
-        }
-      } catch (e: any) {
-        // try next endpoint
-      }
-    }
-    return { success: true, result: { _id: 'exp_' + clean, phone: clean, onboardingStatus: 'pending', onboardingStep: 0 } };
+    const res = await apiPost('/api/app/expert/checkOnboardingStatus', { phone: clean });
+    const rawExpert = (res as any).expert || res.result || res.data;
+    return {
+      success: res.success !== false,
+      result: rawExpert ? this.normalizeExpertProfile(rawExpert, clean) : undefined,
+      message: res.message,
+    };
   }
 
-  public async addPersonalInfo(
+  /**
+   * Onboarding steps — multipart POSTs to the same expert endpoints the mobile
+   * onboarding wizard uses (`ApiService.expertAddPersonalInfo` and friends).
+   * Each returns the updated expert document; a failure throws so the wizard cannot
+   * advance past a step the backend never stored.
+   */
+  private async postExpertStep(
+    path: string,
     formData: FormData
   ): Promise<{ success: boolean; token?: string; result?: MobileExpertProfile; message?: string }> {
-    const endpoints = [
-      '/api/app/expert/addPersonalInfo',
-      `${API_BASE_URL}/api/app/expert/addPersonalInfo`,
-    ];
-
-    for (const url of endpoints) {
-      try {
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: this.getHeaders(true),
-          body: formData,
-        });
-        if (res.ok) {
-          const data = await res.json().catch(() => null);
-          if (data) {
-            const token = data.accessToken || data.token || data.result?.token;
-            if (token) this.saveToken(token);
-            const rawExpert = data.expert || data.result || data.data;
-            const normalized = rawExpert ? this.normalizeExpertProfile(rawExpert) : undefined;
-            return { success: data.success !== false, token, result: normalized, message: data.message };
-          }
-        }
-      } catch (e: any) {
-        console.warn(`[API] addPersonalInfo try failed on ${url}:`, e);
-      }
-    }
-
-    // High-res fallback
-    const fallbackId = 'exp_' + Date.now();
-    const fallbackUser: MobileExpertProfile = {
-      _id: fallbackId,
-      fullName: (formData.get('fullName') as string) || '',
-      phone: (formData.get('phone') as string) || '',
-      email: (formData.get('email') as string) || '',
-      city: (formData.get('city') as string) || '',
-      state: (formData.get('state') as string) || '',
-      zipCode: (formData.get('zipCode') as string) || '',
-      streetAddress: (formData.get('streetAddress') as string) || '',
-      countryName: (formData.get('countryName') as string) || 'India',
-      profilePhoto: (formData.get('profilePhotoUrl') as string) || '',
-      onboardingStep: 1,
-      status: 'Active',
-      isTherapistActive: true,
+    const res = await apiPost(path, undefined, { formData });
+    const token = (res as any).accessToken || (res as any).token || (res as any).result?.token;
+    if (token) this.saveToken(token);
+    const rawExpert = (res as any).expert || res.result || res.data;
+    return {
+      success: res.success !== false,
+      token,
+      result: rawExpert ? this.normalizeExpertProfile(rawExpert) : undefined,
+      message: res.message,
     };
-    return { success: true, token: 'jwt_' + fallbackId, result: fallbackUser, message: 'Details saved' };
   }
 
-  public async addProfessionalInfo(
-    formData: FormData
-  ): Promise<{ success: boolean; result?: MobileExpertProfile; message?: string }> {
-    const endpoints = [
-      '/api/app/expert/addProfessionalInfo',
-      `${API_BASE_URL}/api/app/expert/addProfessionalInfo`,
-    ];
-
-    for (const url of endpoints) {
-      try {
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: this.getHeaders(true),
-          body: formData,
-        });
-        if (res.ok) {
-          const data = await res.json().catch(() => null);
-          if (data) {
-            const rawExpert = data.expert || data.result || data.data;
-            const normalized = rawExpert ? this.normalizeExpertProfile(rawExpert) : undefined;
-            return { success: data.success !== false, result: normalized, message: data.message };
-          }
-        }
-      } catch (e: any) {}
-    }
-    return { success: true };
+  /** POST /api/app/expert/addPersonalInfo (multipart) */
+  public async addPersonalInfo(formData: FormData) {
+    return this.postExpertStep('/api/app/expert/addPersonalInfo', formData);
   }
 
-  public async addBankInfo(
-    formData: FormData
-  ): Promise<{ success: boolean; result?: MobileExpertProfile; message?: string }> {
-    const endpoints = [
-      '/api/app/expert/addBankInfo',
-      `${API_BASE_URL}/api/app/expert/addBankInfo`,
-    ];
-
-    for (const url of endpoints) {
-      try {
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: this.getHeaders(true),
-          body: formData,
-        });
-        if (res.ok) {
-          const data = await res.json().catch(() => null);
-          if (data) {
-            const rawExpert = data.expert || data.result || data.data;
-            const normalized = rawExpert ? this.normalizeExpertProfile(rawExpert) : undefined;
-            return { success: data.success !== false, result: normalized, message: data.message };
-          }
-        }
-      } catch (e: any) {}
-    }
-    return { success: true };
+  /** POST /api/app/expert/addProfessionalInfo (multipart) */
+  public async addProfessionalInfo(formData: FormData) {
+    return this.postExpertStep('/api/app/expert/addProfessionalInfo', formData);
   }
 
-  public async addAreaOfServiceInfo(
-    formData: FormData
-  ): Promise<{ success: boolean; result?: MobileExpertProfile; message?: string }> {
-    const endpoints = [
-      '/api/app/expert/addAreaOfServiceInfo',
-      `${API_BASE_URL}/api/app/expert/addAreaOfServiceInfo`,
-    ];
-
-    for (const url of endpoints) {
-      try {
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: this.getHeaders(true),
-          body: formData,
-        });
-        if (res.ok) {
-          const data = await res.json().catch(() => null);
-          if (data) {
-            const rawExpert = data.expert || data.result || data.data;
-            const normalized = rawExpert ? this.normalizeExpertProfile(rawExpert) : undefined;
-            return { success: data.success !== false, result: normalized, message: data.message };
-          }
-        }
-      } catch (e: any) {}
-    }
-    return { success: true };
+  /** POST /api/app/expert/addBankInfo (multipart) */
+  public async addBankInfo(formData: FormData) {
+    return this.postExpertStep('/api/app/expert/addBankInfo', formData);
   }
 
+  /** POST /api/app/expert/addAreaOfServiceInfo (multipart) */
+  public async addAreaOfServiceInfo(formData: FormData) {
+    return this.postExpertStep('/api/app/expert/addAreaOfServiceInfo', formData);
+  }
+
+  /** POST /api/app/expert/submitForReview — mirrors `ApiService.expertSubmitForReview`. */
   public async submitForReview(
     expertId: string
   ): Promise<{ success: boolean; result?: MobileExpertProfile; message?: string }> {
-    const endpoints = [
-      '/api/app/expert/submitForReview',
-      `${API_BASE_URL}/api/app/expert/submitForReview`,
-    ];
-
-    for (const url of endpoints) {
-      try {
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: this.getHeaders(),
-          body: JSON.stringify({ user: expertId, status: 'Pending' }),
-        });
-        if (res.ok) {
-          const data = await res.json().catch(() => null);
-          if (data) {
-            return { success: data.success !== false, result: data.result || data.data, message: data.message };
-          }
-        }
-      } catch (e: any) {}
-    }
-    return { success: true };
+    const res = await apiPost('/api/app/expert/submitForReview', {
+      user: expertId,
+      status: 'Pending',
+    });
+    const rawExpert = (res as any).expert || res.result || res.data;
+    return {
+      success: res.success !== false,
+      result: rawExpert ? this.normalizeExpertProfile(rawExpert) : undefined,
+      message: res.message,
+    };
   }
 
+  /**
+   * POST /api/app/expert/editProfile
+   *
+   * `editProfile` is the only profile-write route the backend exposes
+   * (`expert.routes.ts`); the previously-used `/updateProfile` does not exist, so saves
+   * silently 404'd. Both entry points now hit the real endpoint and return what the
+   * backend stored.
+   */
+  public async editProfile(
+    payload: Partial<MobileExpertProfile> & Record<string, any>
+  ): Promise<{ success: boolean; result?: MobileExpertProfile; message?: string }> {
+    const res = await apiPost('/api/app/expert/editProfile', {
+      user: this.getCurrentUserId(),
+      ...payload,
+    });
+    const rawExpert = (res as any).expert || res.result || res.data;
+    return {
+      success: res.success !== false,
+      result: rawExpert ? this.normalizeExpertProfile(rawExpert) : undefined,
+      message: res.message,
+    };
+  }
+
+  /** Alias kept for existing call sites — same endpoint as {@link editProfile}. */
   public async updateProfile(
     payload: any
   ): Promise<{ success: boolean; result?: MobileExpertProfile; message?: string }> {
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/app/expert/updateProfile`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify(payload),
-      });
-      if (res.ok) {
-        const data = await res.json().catch(() => null);
-        if (data) {
-          const rawExpert = data.expert || data.result || data.data;
-          const normalized = rawExpert ? this.normalizeExpertProfile(rawExpert) : undefined;
-          return { success: data.success !== false, result: normalized, message: data.message };
-        }
-      }
-      return { success: true, message: 'Profile updated locally' };
-    } catch (e: any) {
-      return { success: true, message: 'Profile updated' };
-    }
+    return this.editProfile(payload);
   }
 
+  /** POST /api/app/expert/refreshUser — mirrors `ApiService.expertRefreshUser`. */
   public async refreshUser(
     expertId: string
   ): Promise<{ success: boolean; result?: MobileExpertProfile; message?: string }> {
-    const endpoints = [
-      '/api/app/expert/refreshUser',
-      `${API_BASE_URL}/api/app/expert/refreshUser`,
-    ];
-
-    for (const url of endpoints) {
-      try {
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: this.getHeaders(),
-          body: JSON.stringify({ user: expertId }),
-        });
-        if (res.ok) {
-          const data = await res.json().catch(() => null);
-          if (data) {
-            const rawExpert = data.expert || data.result || data.data;
-            const normalized = rawExpert ? this.normalizeExpertProfile(rawExpert) : undefined;
-            return { success: data.success !== false, result: normalized, message: data.message };
-          }
-        }
-      } catch (e: any) {}
-    }
-    return { success: false, message: 'Could not refresh profile' };
+    const res = await apiPost('/api/app/expert/refreshUser', { user: expertId });
+    const rawExpert = (res as any).expert || res.result || res.data;
+    return {
+      success: res.success !== false,
+      result: rawExpert ? this.normalizeExpertProfile(rawExpert) : undefined,
+      message: res.message,
+    };
   }
 
+  /**
+   * POST /api/app/expert/generate-portrait (multipart)
+   *
+   * The backend stores the portrait and returns its URL. A local data-URL fallback was
+   * removed deliberately: it produced a photo visible only in this browser while the
+   * mobile app and the admin console still showed the old one.
+   */
   public async uploadProfilePhoto(
     file: File,
     gender: string = 'male'
   ): Promise<{ success: boolean; url?: string; message?: string }> {
-    const endpoints = [
-      '/api/app/expert/generate-portrait',
-      `${API_BASE_URL}/api/app/expert/generate-portrait`,
-    ];
+    const formData = new FormData();
+    formData.append('profilePhoto', file);
+    formData.append('gender', gender);
+    formData.append('poseState', '0');
 
-    for (const url of endpoints) {
-      try {
-        const formData = new FormData();
-        formData.append('profilePhoto', file);
-        formData.append('gender', gender);
-        formData.append('poseState', '0');
+    const res = await apiPost('/api/app/expert/generate-portrait', undefined, { formData });
+    const result = unwrap(res);
+    const photoUrl =
+      (res as any).url ||
+      (res as any).profilePhoto ||
+      result?.profilePhoto ||
+      result?.profileImageUrl;
 
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: this.getHeaders(true),
-          body: formData,
-        });
-        if (res.ok) {
-          const data = await res.json().catch(() => null);
-          if (data) {
-            const photoUrl = data.url || data.profilePhoto || data.result?.profilePhoto || data.result?.profileImageUrl;
-            if (photoUrl) {
-              return { success: data.success !== false, url: photoUrl, message: data.message };
-            }
-          }
-        }
-      } catch (e: any) {
-        console.warn(`[API] uploadProfilePhoto failed on ${url}:`, e);
-      }
+    if (!photoUrl) {
+      return {
+        success: false,
+        message: res.message || 'The portrait service did not return an image URL.',
+      };
     }
-
-    // Convert file to Base64 Data URL locally as ultimate guaranteed fallback
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        resolve({ success: true, url: reader.result as string, message: 'Photo loaded locally' });
-      };
-      reader.onerror = () => {
-        resolve({ success: false, message: 'Failed to read image' });
-      };
-      reader.readAsDataURL(file);
-    });
+    return { success: res.success !== false, url: photoUrl, message: res.message };
   }
 
-  public async editProfile(
-    payload: Partial<MobileExpertProfile>
-  ): Promise<{ success: boolean; result?: MobileExpertProfile; message?: string }> {
-    try {
-      const expertId = this.getCurrentUserId();
-      const res = await fetch(`${API_BASE_URL}/api/app/expert/editProfile`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify({ user: expertId, ...payload }),
-      });
-      const data = await res.json();
-      return { success: data.success !== false, result: data.result || data.data, message: data.message };
-    } catch (e: any) {
-      return { success: true };
-    }
+  /** POST /api/app/expert/refresh-portrait — regenerate the stored portrait. */
+  public async refreshPortrait(): Promise<{ success: boolean; url?: string; message?: string }> {
+    const res = await apiPost('/api/app/expert/refresh-portrait', {});
+    const result = unwrap(res);
+    return {
+      success: res.success !== false,
+      url: (res as any).url || result?.profilePhoto || result?.profileImageUrl,
+      message: res.message,
+    };
   }
 
+  /**
+   * POST /api/app/expert/isTherapistActive — duty toggle.
+   * Mobile reverts its local switch when this fails (`DashboardNotifier.toggleAvailability`),
+   * so the failure has to be reported here too.
+   */
   public async setTherapistActive(
     expertId: string,
     isActive: boolean
   ): Promise<{ success: boolean; message?: string }> {
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/app/expert/isTherapistActive`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify({ user: expertId, isTherapistActive: isActive }),
-      });
-      const data = await res.json();
-      return { success: data.success !== false, message: data.message };
-    } catch (e: any) {
-      return { success: true };
-    }
+    const res = await apiPost('/api/app/expert/isTherapistActive', {
+      user: expertId,
+      isTherapistActive: isActive,
+    });
+    return { success: res.success !== false, message: res.message };
+  }
+
+  /** POST /api/app/expert/isTherapistSOS — mirrors `ApiService.isTherapistSOS`. */
+  public async setTherapistSOS(isSOS: boolean, expertId?: string): Promise<{ success: boolean; message?: string }> {
+    const res = await apiPost('/api/app/expert/isTherapistSOS', {
+      user: expertId || this.getCurrentUserId(),
+      isTherapistSOS: isSOS,
+    });
+    return { success: res.success !== false, message: res.message };
   }
 
   // ==========================================
   // VISIT EXECUTION, SOAP NOTES & FINALIZE
   // ==========================================
 
+  /**
+   * POST /api/app/appointment/:appointmentId/finalize — identical body to
+   * `ApiService.finalizeVisit`. Finalization moves money and closes the appointment,
+   * so a failure must surface instead of being reported as a completed visit.
+   */
   public async finalizeVisit(
     payload: FinalizeVisitPayload
   ): Promise<{ success: boolean; data?: any; message?: string }> {
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/app/appointment/${payload.appointmentId}/finalize`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify({
-          paymentMethod: payload.paymentMethod,
-          totalAmount: payload.totalAmount,
-          addOns: payload.addOns || [],
-          packageId: payload.packageId,
-          packageName: payload.packageName,
-        }),
-      });
-      const data = await res.json();
-      return { success: data.success !== false, data: data.data || data.result, message: data.message };
-    } catch (e: any) {
-      console.warn('[API] finalizeVisit fallback:', e);
-      return {
-        success: true,
-        data: {
-          status: 'COMPLETED',
-          paymentLinkUrl: payload.paymentMethod === 'online' ? `https://ariesphysiocare.com/pay/${payload.appointmentId}` : null,
-        },
-      };
-    }
+    const res = await apiPost(`/api/app/appointment/${payload.appointmentId}/finalize`, {
+      paymentMethod: payload.paymentMethod,
+      totalAmount: payload.totalAmount,
+      ...(payload.addOns ? { addOns: payload.addOns } : {}),
+      ...(payload.packageId ? { packageId: payload.packageId } : {}),
+      ...(payload.packageName ? { packageName: payload.packageName } : {}),
+    });
+    return { success: res.success !== false, data: unwrap(res), message: res.message };
   }
 
+  /**
+   * POST /api/app/patient/referral-earning — fire-and-forget after a visit is
+   * finalized, exactly as `ApiService.calculateReferralEarning` documents.
+   */
   public async calculateReferralEarning(patientId: string, visitAmount: number, appointmentId: string) {
     try {
-      await fetch(`${API_BASE_URL}/api/app/patient/referral-earning`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify({ patientId, visitAmount, appointmentId }),
-      });
-    } catch (_) {}
-  }
-
-  public async requestWithdrawal(amount: number): Promise<{ success: boolean; message?: string }> {
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/admin/wallet/request-withdrawal`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify({ amount }),
-      });
-      const data = await res.json();
-      return { success: data.success !== false, message: data.message };
-    } catch (e: any) {
-      return { success: true, message: 'Withdrawal requested successfully' };
+      await apiPost('/api/app/patient/referral-earning', { patientId, visitAmount, appointmentId });
+    } catch (err: any) {
+      console.warn('[API] calculateReferralEarning failed:', err?.message || err);
     }
   }
 
+  /** POST /api/admin/wallet/request-withdrawal — same endpoint as `ApiService.requestWithdrawal`. */
+  public async requestWithdrawal(amount: number): Promise<{ success: boolean; message?: string }> {
+    const res = await apiPost('/api/admin/wallet/request-withdrawal', { amount });
+    return { success: res.success !== false, message: res.message };
+  }
+
+  /** POST /api/app/supportTicket/createSupportTicket — mirrors `ApiService.createSupportTicket`. */
   public async createSupportTicket(
     subject: string,
     category: string,
     priority: string,
     description: string,
-    expertId: string
-  ): Promise<{ success: boolean; message?: string }> {
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/app/supportTicket/createSupportTicket`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify({ subject, category, priority, description, expert: expertId }),
-      });
-      const data = await res.json();
-      return { success: data.success !== false, message: data.message };
-    } catch (e: any) {
-      return { success: true };
-    }
+    expertId?: string
+  ): Promise<{ success: boolean; result?: any; message?: string }> {
+    const res = await apiPost('/api/app/supportTicket/createSupportTicket', {
+      subject,
+      category,
+      priority,
+      description,
+      expert: expertId || this.getCurrentUserId(),
+    });
+    return { success: res.success !== false, result: unwrap(res), message: res.message };
   }
 
   // ==========================================
   // DASHBOARD STATS
   // ==========================================
 
-  public getCurrentUserId(): string | null {
-    if (typeof window !== 'undefined') {
-      try {
-        const cached = localStorage.getItem('expert_user_data');
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          return parsed._id || parsed.id || parsed.therapistId || parsed.uid || null;
-        }
-      } catch (_) {}
+  /** The cached expert record — the web equivalent of mobile's `authProvider.user`. */
+  public getCachedUser(): MobileExpertProfile | null {
+    if (typeof window === 'undefined') return null;
+    try {
+      const cached = localStorage.getItem('expert_user_data');
+      return cached ? (JSON.parse(cached) as MobileExpertProfile) : null;
+    } catch {
+      return null;
     }
-    return null;
+  }
+
+  public getCurrentUserId(): string | null {
+    const parsed = this.getCachedUser() as any;
+    if (!parsed) return null;
+    return parsed._id || parsed.id || parsed.therapistId || parsed.uid || null;
   }
 
   // ==========================================
   // DASHBOARD STATS (1:1 Mobile App Parity with Live MongoDB)
   // ==========================================
 
+  /**
+   * Dashboard KPIs — mirrors `DashboardNotifier._loadData()` in the Flutter app.
+   *
+   * The same four endpoints are queried with the same bodies, and the response
+   * envelopes are read with the exact shapes the backend returns
+   * (`home.controller.ts`):
+   *   fetchNoOfVisit         → result.{today,month,year}.{total,completed}
+   *   fetchNoOfPatientAttend → result: Patient[], count: number
+   *   fetchReferTherapist    → result: AppReferral[]
+   *   fetchReferPatients     → result: PatientReferral[]
+   *   fetchLeadsTekenAnalysis/fetchMissLeadsAnalysis → result: lead[], metrics
+   *
+   * Earnings come from the therapist record (`totalEarning`), exactly as the mobile
+   * dashboard reads `authState.user.totalEarning` — they are never derived locally.
+   */
   public async getDashboardStats(expertId?: string): Promise<any> {
     const expId = expertId || this.getCurrentUserId();
-    let visitStats: any = {};
-    let patientStats: any = {};
-
-    if (expId) {
-      const endpoints = [
-        { url: '/api/app/home/fetchNoOfVisit', fallback: `${API_BASE_URL}/api/app/home/fetchNoOfVisit`, type: 'visit' },
-        { url: '/api/app/home/fetchNoOfPatientAttend', fallback: `${API_BASE_URL}/api/app/home/fetchNoOfPatientAttend`, type: 'patient' },
-      ];
-
-      for (const ep of endpoints) {
-        try {
-          const res = await fetch(ep.url, {
-            method: 'POST',
-            headers: this.getHeaders(),
-            body: JSON.stringify({ expert: expId }),
-          });
-          if (res.ok) {
-            const data = await res.json();
-            if (ep.type === 'visit') visitStats = data.result || data.data || data;
-            else patientStats = data.result || data.data || data;
-          }
-        } catch (_) {}
-      }
+    if (!expId) {
+      throw new ApiError('No authenticated provider — cannot load dashboard.', 401);
     }
 
-    return {
-      todayVisits: visitStats.todayVisit ?? visitStats.today ?? 0,
-      totalVisits: visitStats.totalVisit ?? visitStats.total ?? 0,
-      monthlyVisits: visitStats.monthlyVisit ?? visitStats.monthly ?? 0,
-      todayPatients: patientStats.todayPatient ?? 0,
-      totalPatients: patientStats.totalPatient ?? 0,
-      monthlyPatients: patientStats.monthlyPatient ?? 0,
-      todayEarnings: (visitStats.todayVisit ?? 0) * 600,
-      monthlyEarnings: (visitStats.monthlyVisit ?? 0) * 600,
-      totalEarnings: (visitStats.totalVisit ?? 0) * 600,
+    const settle = async <T>(work: Promise<T>, label: string): Promise<T | null> => {
+      try {
+        return await work;
+      } catch (err: any) {
+        console.warn(`[API] getDashboardStats: ${label} failed:`, err?.message || err);
+        return null;
+      }
     };
+
+    const [visitsRes, patientsRes, referTherapistRes, referPatientsRes, leadsRes, missedRes, profileRes] =
+      await Promise.all([
+        settle(apiPost('/api/app/home/fetchNoOfVisit', { expert: expId }), 'fetchNoOfVisit'),
+        settle(apiPost('/api/app/home/fetchNoOfPatientAttend', { expert: expId }), 'fetchNoOfPatientAttend'),
+        settle(apiPost('/api/app/expert/fetchReferTherapist', { referredBy: expId }), 'fetchReferTherapist'),
+        settle(apiPost('/api/app/patient/fetchReferPatients', { therapist: expId }), 'fetchReferPatients'),
+        settle(apiPost('/api/app/home/fetchLeadsTekenAnalysis', { expert: expId }), 'fetchLeadsTekenAnalysis'),
+        settle(apiPost('/api/app/home/fetchMissLeadsAnalysis', { expert: expId }), 'fetchMissLeadsAnalysis'),
+        settle(this.refreshUser(expId), 'refreshUser'),
+      ]);
+
+    const visits = (visitsRes?.result || {}) as any;
+    const today = visits.today || {};
+    const month = visits.month || {};
+    const year = visits.year || {};
+
+    const patientList = Array.isArray(patientsRes?.result) ? patientsRes!.result : [];
+    const uniquePatients = patientsRes?.count ?? patientList.length;
+
+    // Mobile sums referralAmount over active referrals only.
+    const appReferrals = Array.isArray(referTherapistRes?.result) ? referTherapistRes!.result : [];
+    const totalReferralEarnings = appReferrals
+      .filter((r: any) => r.isProfileActive === true)
+      .reduce((sum: number, r: any) => sum + (Number(r.referralAmount) || 0), 0);
+
+    const patientReferrals = Array.isArray(referPatientsRes?.result) ? referPatientsRes!.result : [];
+    const totalPatientReferralEarnings = patientReferrals
+      .filter((r: any) => r.status === 'Active')
+      .reduce((sum: number, r: any) => sum + (Number(r.referralAmount) || 0), 0);
+
+    const leadsTakenList = Array.isArray(leadsRes?.result) ? leadsRes!.result : [];
+    const leadMetrics = (leadsRes as any)?.metrics || {};
+    const missedLeadsList = Array.isArray(missedRes?.result) ? missedRes!.result : [];
+
+    const profile = profileRes?.result || null;
+    const totalEarnings = Number(profile?.totalEarnings ?? profile?.walletAmount ?? 0) || 0;
+
+    const now = new Date();
+    const currentTarget = profile?.monthlyTargets?.find(
+      (t: any) => t.month === now.getMonth() + 1 && t.year === now.getFullYear()
+    );
+
+    return {
+      // Earnings — sourced from the therapist record, same as mobile.
+      totalEarnings,
+      walletAmount: Number(profile?.walletAmount ?? 0) || 0,
+
+      // Visits — real backend shape.
+      detailedVisits: {
+        today: { total: today.total ?? 0, completed: today.completed ?? 0, pending: Math.max((today.total ?? 0) - (today.completed ?? 0), 0) },
+        month: { total: month.total ?? 0, completed: month.completed ?? 0 },
+        year: { total: year.total ?? 0, completed: year.completed ?? 0 },
+      },
+      todayVisits: today.total ?? 0,
+      todayCompletedVisits: today.completed ?? 0,
+      monthlyVisits: month.total ?? 0,
+      totalVisits: year.total ?? 0,
+
+      // Patients.
+      uniquePatients,
+      patientList,
+
+      // Referrals.
+      appReferrals,
+      totalReferralEarnings,
+      patientReferrals,
+      totalPatientReferralEarnings,
+
+      // Lead funnel.
+      leadsTaken: leadMetrics.totalLeads ?? leadsTakenList.length,
+      leadsTakenList,
+      missedLeads: missedLeadsList.length,
+      missedLeadsList,
+      leadConversionRate:
+        leadMetrics.conversionRate !== undefined ? `${leadMetrics.conversionRate}%` : undefined,
+      leadMetrics,
+
+      // Monthly target (mirrors mobile target_setup widget).
+      monthlyTarget: currentTarget?.target ?? profile?.monthlyTargetEarnings,
+      monthlyAchieved: currentTarget?.achieved ?? profile?.monthlyCurrentEarnings,
+      monthlyVisitTarget: profile?.monthlyVisitTarget,
+      monthlyVisitAchievement: profile?.monthlyVisitAchievement,
+    };
+  }
+
+  /** POST /api/app/expert/setMonthlyTarget — mirrors `DashboardNotifier.setMonthlyTarget`. */
+  public async setMonthlyTarget(target: number, expertId?: string): Promise<{ success: boolean; result?: any; message?: string }> {
+    const expId = expertId || this.getCurrentUserId();
+    const res = await apiPost('/api/app/expert/setMonthlyTarget', {
+      expertId: expId,
+      monthlyTarget: target,
+    });
+    return {
+      success: res.success !== false,
+      result: res.result ? this.normalizeExpertProfile(res.result) : undefined,
+      message: res.message,
+    };
+  }
+
+  /** POST /api/app/home/fetchLeadsTekenAnalysis — leads-taken funnel + quality metrics. */
+  public async fetchLeadsTakenAnalysis(expertId?: string): Promise<{ leads: any[]; metrics: any }> {
+    const expId = expertId || this.getCurrentUserId();
+    const res = await apiPost('/api/app/home/fetchLeadsTekenAnalysis', { expert: expId });
+    return {
+      leads: Array.isArray(res.result) ? res.result : [],
+      metrics: (res as any).metrics || {},
+    };
+  }
+
+  /** POST /api/app/home/fetchMissLeadsAnalysis — leads that lapsed without a response. */
+  public async fetchMissedLeadsAnalysis(expertId?: string): Promise<any[]> {
+    const expId = expertId || this.getCurrentUserId();
+    const res = await apiPost('/api/app/home/fetchMissLeadsAnalysis', { expert: expId });
+    return Array.isArray(res.result) ? res.result : [];
   }
 
   // ==========================================
   // LEADS & BROADCASTS (1:1 Mobile App Parity with Live MongoDB)
   // ==========================================
 
-  /** Matches Flutter broadcast/lead provider → POST /api/app/broadcastlisting/fetchBroadcastlisting */
-  public async getLeads(): Promise<{ newLeads: any[]; acquiredLeads: any[] }> {
-    const endpoints = [
-      `/api/app/broadcastlisting/fetchBroadcastlisting`,
-      `${API_BASE_URL}/api/app/broadcastlisting/fetchBroadcastlisting`,
-      `/api/app/leads/myLeads`,
-      `${API_BASE_URL}/api/app/leads/myLeads`,
-    ];
+  /**
+   * POST /api/app/broadcastlisting/fetchBroadcastlisting  body: { expert }
+   *
+   * Returns the therapist's broadcast listings enriched with the populated broadcast
+   * and patient documents (`broadcastlisting.controller.ts` → `result`). Listings are
+   * split the way the mobile lead screen splits them: still-open offers vs. the ones
+   * this provider already accepted.
+   */
+  public async getLeads(expertId?: string): Promise<{ newLeads: any[]; acquiredLeads: any[] }> {
+    const expId = expertId || this.getCurrentUserId();
+    const res = await apiPost('/api/app/broadcastlisting/fetchBroadcastlisting', { expert: expId });
 
-    for (const url of endpoints) {
-      try {
-        const isGet = url.includes('/leads/myLeads');
-        const res = await fetch(url, {
-          method: isGet ? 'GET' : 'POST',
-          headers: this.getHeaders(),
-          body: isGet ? undefined : JSON.stringify({}),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          const list = data.broadcastlisting || data.result?.newLeads || data.result || data.data?.broadcasts || data.data || [];
-          if (Array.isArray(list) && list.length > 0) {
-            return {
-              newLeads: list,
-              acquiredLeads: data.result?.acquiredLeads || data.acquiredLeads || [],
-            };
-          }
-        }
-      } catch (err) {
-        console.warn(`[API] getLeads attempt failed on ${url}:`, err);
-      }
-    }
-    return { newLeads: [], acquiredLeads: [] };
+    const listings = unwrapList(res, 'broadcastlisting', 'broadcastListings');
+    const isInterested = (listing: any) =>
+      String(listing?.therapistResponse || '').toLowerCase() === 'interested';
+
+    return {
+      newLeads: listings.filter((listing) => !listing?.therapistResponse),
+      acquiredLeads: listings.filter(isInterested),
+    };
   }
 
-  public async expressInterest(leadId: string): Promise<{ success: boolean; message?: string }> {
-    const endpoints = [
-      `/api/app/broadcastlisting/markAsInterestedOrNot`,
-      `${API_BASE_URL}/api/app/broadcastlisting/markAsInterestedOrNot`,
-      `/api/app/leads/expressInterest`,
-    ];
-    for (const url of endpoints) {
-      try {
-        const res = await fetch(url, {
-          method: url.includes('markAsInterested') ? 'PUT' : 'POST',
-          headers: this.getHeaders(),
-          body: JSON.stringify({ broadcastId: leadId, leadId, isInterested: true }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          return { success: data.success !== false, message: data.message || 'Interest registered successfully' };
-        }
-      } catch (_) {}
-    }
-    return { success: true, message: 'Interest registered successfully' };
+  /**
+   * PUT /api/app/broadcastlisting/markAsInterestedOrNot
+   *
+   * The backend keys off `broadcastListingId` + `therapistResponse`
+   * (`markAsInterestedOrNot` controller), which is exactly what
+   * `ApiService.markAsInterestedOrNot` sends. The previous `{broadcastId, isInterested}`
+   * body was ignored by the server, so accepting a lead here never reached the backend.
+   */
+  public async expressInterest(broadcastListingId: string): Promise<{ success: boolean; message?: string }> {
+    const res = await apiPut('/api/app/broadcastlisting/markAsInterestedOrNot', {
+      broadcastListingId,
+      therapistResponse: 'Interested',
+    });
+    return { success: res.success !== false, message: res.message };
   }
 
-  public async passLead(leadId: string, reason?: string): Promise<{ success: boolean }> {
-    try {
-      const res = await fetch(`/api/app/broadcastlisting/markAsInterestedOrNot`, {
-        method: 'PUT',
-        headers: this.getHeaders(),
-        body: JSON.stringify({ broadcastId: leadId, leadId, isInterested: false, reason }),
-      });
-      const data = await res.json();
-      return { success: data.success !== false };
-    } catch {
-      return { success: true };
-    }
+  /** PUT /api/app/broadcastlisting/markAsInterestedOrNot with a "Not Interested" response. */
+  public async passLead(broadcastListingId: string, reason?: string): Promise<{ success: boolean; message?: string }> {
+    const res = await apiPut('/api/app/broadcastlisting/markAsInterestedOrNot', {
+      broadcastListingId,
+      therapistResponse: 'Not Interested',
+      ...(reason ? { notIntrestedRemark: reason } : {}),
+    });
+    return { success: res.success !== false, message: res.message };
   }
 
+  /** POST /api/app/patient/requestReview — mirrors `ApiService.requestPatientReview`. */
   public async requestPatientReview(patientId: string): Promise<any> {
-    try {
-      const res = await fetch(`/api/app/patient/requestReview`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify({ patientId }),
-      });
-      return await res.json();
-    } catch (e: any) {
-      return { success: true, data: { phoneNumber: '' } };
-    }
+    const res = await apiPost('/api/app/patient/requestReview', { patientId });
+    return { success: res.success !== false, data: unwrap(res), message: res.message };
   }
 
   // ==========================================
   // APPOINTMENTS (1:1 Mobile App Parity with Live MongoDB)
   // ==========================================
 
-  /** Matches Flutter appointmentProvider.fetchAppointments() → POST /api/app/appointment/fetchAppointments */
+  /** POST /api/app/appointment/fetchAppointments  body: { therapist } */
   public async getAppointments(therapistId?: string): Promise<any[]> {
     const tId = therapistId || this.getCurrentUserId();
-    const endpoints = [
-      `/api/app/appointment/fetchAppointments`,
-      `${API_BASE_URL}/api/app/appointment/fetchAppointments`,
-      `/api/app/appointments/myAppointments`,
-    ];
-
-    for (const url of endpoints) {
-      try {
-        const isGet = url.includes('/appointments/myAppointments');
-        const res = await fetch(url, {
-          method: isGet ? 'GET' : 'POST',
-          headers: this.getHeaders(),
-          body: isGet ? undefined : JSON.stringify({ therapist: tId }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          const list = data.appointments || data.result?.appointments || data.result || data.data?.appointments || data.data;
-          if (Array.isArray(list)) {
-            return list;
-          }
-        }
-      } catch (err) {
-        console.warn(`[API] getAppointments attempt failed on ${url}:`, err);
-      }
-    }
-    return [];
+    const res = await apiPost('/api/app/appointment/fetchAppointments', { therapist: tId });
+    return unwrapList(res, 'appointments');
   }
 
-  public async startTravel(appointmentId: string): Promise<{ success: boolean }> {
-    try {
-      const res = await fetch(`/api/app/appointment/${appointmentId}/startTravel`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-      });
-      const data = await res.json();
-      return { success: data.success !== false };
-    } catch {
-      return { success: true };
-    }
+  /**
+   * "Start travel" has no backend endpoint in either client — the mobile app
+   * (`VisitFlowService.startVisit`) only moves local state to `movingToPatient`.
+   * Kept as a local transition so the web workflow matches the mobile workflow.
+   */
+  public async startTravel(_appointmentId: string): Promise<{ success: boolean }> {
+    return { success: true };
   }
 
-  public async markArrived(appointmentId: string): Promise<{ success: boolean }> {
-    try {
-      const res = await fetch(`/api/app/appointment/validateArrival`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify({ appointmentId }),
-      });
-      const data = await res.json();
-      return { success: data.success !== false };
-    } catch {
-      return { success: true };
-    }
+  /**
+   * POST /api/app/appointment/:appointmentId/validate-arrival
+   * Mirrors `VisitFlowService.markReached()` — the backend geo-validates the arrival
+   * and the UI only advances when it confirms, so failures must propagate.
+   */
+  public async markArrived(
+    appointmentId: string,
+    coords?: { lat: number; lng: number }
+  ): Promise<{ success: boolean; message?: string }> {
+    const res = await apiPost(`/api/app/appointment/${appointmentId}/validate-arrival`, {
+      location: {
+        latitude: coords?.lat,
+        longitude: coords?.lng,
+        timestamp: new Date().toISOString(),
+      },
+    });
+    return { success: res.success !== false, message: res.message };
   }
 
+  /**
+   * Patient-side OTP check-in. The backend validates the arrival OTP through the same
+   * `validate-arrival` endpoint the mobile app uses; there is no separate check-in route.
+   */
   public async checkInWithOtp(appointmentId: string, otp: string): Promise<{ success: boolean; message?: string }> {
-    try {
-      const res = await fetch(`/api/app/appointment/${appointmentId}/checkIn`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify({ otp }),
-      });
-      const data = await res.json();
-      return { success: data.success !== false, message: data.message };
-    } catch {
-      return { success: true };
-    }
+    const res = await apiPost(`/api/app/appointment/${appointmentId}/validate-arrival`, { otp });
+    return { success: res.success !== false, message: res.message };
   }
 
   // ==========================================
   // PATIENTS (1:1 Mobile App Parity with Live MongoDB)
   // ==========================================
 
-  /** Matches Flutter apiService.getPatients() → POST /api/app/patient/fetchPatients */
+  /** POST /api/app/patient/fetchPatients  body: { therapist } */
   public async getPatients(therapistId?: string): Promise<any[]> {
     const tId = therapistId || this.getCurrentUserId();
-    const endpoints = [
-      `/api/app/patient/fetchPatients`,
-      `${API_BASE_URL}/api/app/patient/fetchPatients`,
-      `/api/app/patients/myPatients`,
-    ];
-
-    for (const url of endpoints) {
-      try {
-        const isGet = url.includes('/patients/myPatients');
-        const res = await fetch(url, {
-          method: isGet ? 'GET' : 'POST',
-          headers: this.getHeaders(),
-          body: isGet ? undefined : JSON.stringify({ therapist: tId }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          const list = data.patients || data.result?.patients || data.result || data.data?.patients || data.data;
-          if (Array.isArray(list)) {
-            return list;
-          }
-        }
-      } catch (err) {
-        console.warn(`[API] getPatients attempt failed on ${url}:`, err);
-      }
-    }
-    return [];
+    const res = await apiPost('/api/app/patient/fetchPatients', { therapist: tId });
+    return unwrapList(res, 'patients');
   }
 
   // ==========================================
   // REFERRAL DOCTORS & PATIENTS (1:1 Mobile App Parity)
   // ==========================================
 
+  /**
+   * Referral ledger. Same two calls the mobile dashboard makes:
+   *   POST /api/app/expert/fetchReferTherapist   body: { referredBy }
+   *   POST /api/app/patient/fetchReferPatients   body: { therapist }
+   */
   public async fetchReferrals(expertId?: string): Promise<{ referTherapist: any[]; referPatients: any[] }> {
     const expId = expertId || this.getCurrentUserId();
-    let referTherapist: any[] = [];
-    let referPatients: any[] = [];
+    if (!expId) return { referTherapist: [], referPatients: [] };
 
-    if (expId) {
-      try {
-        const rRes = await fetch(`/api/app/expert/fetchReferTherapist`, {
-          method: 'POST',
-          headers: this.getHeaders(),
-          body: JSON.stringify({ referredBy: expId }),
-        });
-        if (rRes.ok) {
-          const d = await rRes.json();
-          referTherapist = d.referTherapist || d.result || [];
-        }
-      } catch (_) {}
+    const [therapistRes, patientRes] = await Promise.allSettled([
+      apiPost('/api/app/expert/fetchReferTherapist', { referredBy: expId }),
+      apiPost('/api/app/patient/fetchReferPatients', { therapist: expId }),
+    ]);
 
-      try {
-        const pRes = await fetch(`/api/app/patient/fetchReferPatients`, {
-          method: 'POST',
-          headers: this.getHeaders(),
-          body: JSON.stringify({ therapist: expId }),
-        });
-        if (pRes.ok) {
-          const d = await pRes.json();
-          referPatients = d.referPatients || d.result || [];
-        }
-      } catch (_) {}
-    }
-
-    return { referTherapist, referPatients };
+    return {
+      referTherapist:
+        therapistRes.status === 'fulfilled' ? unwrapList(therapistRes.value, 'referTherapist') : [],
+      referPatients:
+        patientRes.status === 'fulfilled' ? unwrapList(patientRes.value, 'referPatients') : [],
+    };
   }
 
+  /** POST /api/app/patient/createReferPatient — mirrors `ApiService.createReferPatient`. */
   public async createReferPatient(payload: {
     therapist: string;
     patientName: string;
@@ -1359,104 +1286,72 @@ class ProviderApiService {
     patientAddress?: string;
     patientCondition?: string;
     city?: string;
-  }): Promise<{ success: boolean; message?: string }> {
-    try {
-      const res = await fetch(`/api/app/patient/createReferPatient`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      return { success: data.success !== false, message: data.message || 'Patient referred successfully' };
-    } catch (e: any) {
-      return { success: false, message: e.message };
-    }
+    [key: string]: any;
+  }): Promise<{ success: boolean; result?: any; message?: string }> {
+    const res = await apiPost('/api/app/patient/createReferPatient', payload);
+    return {
+      success: res.success !== false,
+      result: unwrap(res),
+      message: res.message || 'Patient referred successfully',
+    };
   }
 
+  /** POST /api/app/expert/createReferTherapist — mirrors `ApiService.createReferTherapist`. */
   public async createReferTherapist(payload: {
     referredBy: string;
     doctorName: string;
     doctorMobile: string;
     specialization?: string;
     city?: string;
-  }): Promise<{ success: boolean; message?: string }> {
-    try {
-      const res = await fetch(`/api/app/expert/createReferTherapist`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      return { success: data.success !== false, message: data.message || 'Therapist referred successfully' };
-    } catch (e: any) {
-      return { success: false, message: e.message };
-    }
+    [key: string]: any;
+  }): Promise<{ success: boolean; result?: any; message?: string }> {
+    const res = await apiPost('/api/app/expert/createReferTherapist', payload);
+    return {
+      success: res.success !== false,
+      result: unwrap(res),
+      message: res.message || 'Therapist referred successfully',
+    };
   }
 
   // ==========================================
   // WALLET & TRANSACTIONS
   // ==========================================
 
-  /** Matches Flutter PayoutService.getWalletData() */
-  public async getWalletBalance(expertId?: string): Promise<{ availableBalance: number; pendingBalance: number; walletStatus: string; isEligibleForPayout: boolean }> {
-    const expId = expertId || this.getCurrentUserId();
-    let balance = 0;
-    let status = 'Active';
-
-    if (expId) {
-      try {
-        const uRes = await this.refreshUser(expId);
-        if (uRes.success && uRes.result) {
-          balance = uRes.result.walletBalance ?? uRes.result.walletAmount ?? 0;
-          status = uRes.result.walletStatus ?? 'Active';
-        }
-      } catch (_) {}
-    }
-
-    try {
-      const res = await fetch(`/api/app/wallet/my-wallet`, {
-        method: 'GET',
-        headers: this.getHeaders(),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const d = data.result || data.data || data;
-        return {
-          availableBalance: d.availableBalance ?? d.walletBalance ?? d.walletAmount ?? balance,
-          pendingBalance: d.pendingBalance ?? 0,
-          walletStatus: d.walletStatus ?? status,
-          isEligibleForPayout: (d.availableBalance ?? d.walletBalance ?? balance) >= 500,
-        };
-      }
-    } catch (_) {}
+  /**
+   * GET /api/app/wallet/my-wallet
+   *
+   * The backend returns `{ availableBalance, pendingBalance, lockedBalance, currency,
+   * status }` (wallet_transaction.controller.ts → getMyWallet), derived from the
+   * therapist's `walletAmount` minus pending withdrawals — the same figures the mobile
+   * `PayoutService` shows.
+   */
+  public async getWalletBalance(): Promise<{
+    availableBalance: number;
+    pendingBalance: number;
+    lockedBalance: number;
+    currency: string;
+    walletStatus: string;
+    isEligibleForPayout: boolean;
+  }> {
+    const res = await apiGet('/api/app/wallet/my-wallet');
+    const wallet = unwrap(res) || {};
+    const available = Number(wallet.availableBalance ?? wallet.walletAmount ?? 0) || 0;
 
     return {
-      availableBalance: balance,
-      pendingBalance: 0,
-      walletStatus: status,
-      isEligibleForPayout: balance >= 500,
+      availableBalance: available,
+      pendingBalance: Number(wallet.pendingBalance ?? 0) || 0,
+      lockedBalance: Number(wallet.lockedBalance ?? 0) || 0,
+      currency: wallet.currency || 'INR',
+      walletStatus: wallet.status || wallet.walletStatus || 'Active',
+      isEligibleForPayout: available >= 500,
     };
   }
 
-  /** Matches Flutter PayoutService.getTransactions(expertId) */
+  /** POST /api/app/walletTransaction/fetchWalletTransactions  body: { expert } */
   public async getTransactions(expertId?: string): Promise<any[]> {
     const expId = expertId || this.getCurrentUserId();
-    try {
-      const res = await fetch(`/api/app/walletTransaction/fetchWalletTransactions`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify({ expert: expId }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const result = data.result || data.data || data.transactions || data;
-        if (Array.isArray(result)) return result;
-        if (result && Array.isArray(result.transactions)) return result.transactions;
-      }
-    } catch (e: any) {
-      console.warn('[API] getTransactions failed:', e);
-    }
-    return [];
+    const res = await apiPost('/api/app/walletTransaction/fetchWalletTransactions', { expert: expId });
+    return unwrapList(res, 'transactions', 'walletTransactions');
   }
 
   // ==========================================
@@ -1466,16 +1361,8 @@ class ProviderApiService {
   /** Matches Flutter FormService.fetchAssessments() → POST /api/app/assessment/fetchAssessments */
   public async fetchAssessments(): Promise<DynamicAssessmentForm[]> {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/app/assessment/fetchAssessments`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-      });
-      const data = await res.json();
-      let list: any[] = [];
-      if (Array.isArray(data.result)) list = data.result;
-      else if (Array.isArray(data.data)) list = data.data;
-      else if (data.data?.assessments && Array.isArray(data.data.assessments)) list = data.data.assessments;
-      else if (Array.isArray(data.assessments)) list = data.assessments;
+      const data = await apiPost('/api/app/assessment/fetchAssessments', {});
+      const list: any[] = unwrapList(data, 'assessments');
 
       if (list && list.length > 0) {
         return list.map((item: any) => ({
@@ -1500,8 +1387,15 @@ class ProviderApiService {
         }));
       }
     } catch (e: any) {
-      console.warn('[API] fetchAssessments error, loading built-in 34 clinical forms:', e);
+      // A backend outage must be visible, not papered over with a local catalogue —
+      // otherwise a clinician fills a form the server never issued and cannot store.
+      console.error('[API] fetchAssessments failed:', e);
+      throw e;
     }
+
+    // Backend reachable but no assessment forms configured for this tenant yet:
+    // fall back to the built-in clinical templates so a visit can still be documented.
+    console.warn('[API] No assessment forms returned by the backend; using built-in clinical templates.');
     return BUILTIN_34_ASSESSMENT_FORMS;
   }
 
@@ -1538,27 +1432,33 @@ class ProviderApiService {
   }
 
   /** Matches Flutter FormService.submitForm() → POST /api/app/assessmentResponse/addAssessmentResponse */
+  /**
+   * POST /api/app/assessmentResponse/addAssessmentResponse
+   *
+   * Mirrors `VisitFlowService` — clinical data must be durably persisted before the
+   * visit advances to payment, so a failure is rethrown rather than swallowed. The
+   * mobile app does exactly this (`rethrow` after keeping the form in memory).
+   */
   public async submitAssessmentResponse(
     payload: AssessmentResponsePayload
   ): Promise<{ success: boolean; message?: string }> {
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/app/assessmentResponse/addAssessmentResponse`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      return { success: data.success !== false, message: data.message };
-    } catch (e: any) {
-      console.warn('[API] submitAssessmentResponse offline fallback:', e);
-      return { success: true, message: 'Assessment response saved successfully.' };
-    }
+    const res = await apiPost('/api/app/assessmentResponse/addAssessmentResponse', {
+      isActive: true,
+      isDeleted: false,
+      ...payload,
+    });
+    return { success: res.success !== false, message: res.message };
   }
 
   // ==========================================
   // GAMING ARENA & CHAMPIONSHIP HUB (1:1 Mobile Parity)
   // ==========================================
 
+  /**
+   * Gaming hub summary. Mirrors `gamingProfileProvider` + `dailyLeaderboardProvider`
+   * in the Flutter app: `POST /api/app/gaming/profile { userId }` and
+   * `GET /api/app/gaming/leaderboard`. (There is no `/gaming/dashboard` route.)
+   */
   public async getGamingDashboard(): Promise<{
     coins: number;
     rank: number;
@@ -1566,128 +1466,179 @@ class ProviderApiService {
     completedQuests: number;
     streakDays: number;
     tier: string;
+    alias?: string;
+    profile: any;
+    leaderboard: any[];
   }> {
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/app/gaming/dashboard`, {
-        method: 'GET',
-        headers: this.getHeaders(),
-      });
-      const data = await res.json();
-      return data.result || data.data || {
-        coins: 0,
-        rank: 1,
-        weeklyScore: 0,
-        completedQuests: 0,
-        streakDays: 0,
-        tier: 'Verified Practitioner',
-      };
-    } catch {
-      return {
-        coins: 0,
-        rank: 1,
-        weeklyScore: 0,
-        completedQuests: 0,
-        streakDays: 0,
-        tier: 'Verified Practitioner',
-      };
-    }
+    const userId = this.getCurrentUserId();
+    const [profile, leaderboard] = await Promise.all([
+      this.getGamingProfile().catch(() => null),
+      this.getGamingLeaderboard().catch(() => [] as any[]),
+    ]);
+
+    const myRank =
+      leaderboard.findIndex(
+        (entry: any) =>
+          String(entry.userId || entry._id || entry.user?._id) === String(userId) ||
+          (profile?.alias && entry.alias === profile.alias)
+      ) + 1;
+
+    return {
+      coins: Number(profile?.coins ?? 0) || 0,
+      rank: myRank > 0 ? myRank : Number(profile?.rank ?? 0) || 0,
+      weeklyScore: Number(profile?.points ?? profile?.xp ?? 0) || 0,
+      completedQuests: Number(profile?.completedQuests ?? profile?.tasksCompleted ?? 0) || 0,
+      streakDays: Number(profile?.streakDays ?? 0) || 0,
+      tier: profile?.league || profile?.activeTier || 'bronze',
+      alias: profile?.alias,
+      profile,
+      leaderboard,
+    };
   }
 
-  public async getDailyTournament(): Promise<{
-    id: string;
-    title: string;
-    description: string;
-    category: string;
-    timeRemainingSeconds: number;
-    entryFeeCoins: number;
-    prizePoolCoins: number;
-    questionsCount: number;
-    questions: Array<{
-      id: string;
-      question: string;
-      options: string[];
-      correctIndex: number;
-      explanation: string;
-      category: string;
-    }>;
-  }> {
-    return {
-      id: 'tourney_' + new Date().toISOString().slice(0, 10),
-      title: 'Daily Clinical Championship: Orthopedic & Neuro Diagnostics',
-      description: 'Test your clinical reasoning against top physiotherapists across India. 10 MCQs with instant explanations.',
-      category: 'Orthopedic Special Tests',
-      timeRemainingSeconds: 34200,
-      entryFeeCoins: 0,
-      prizePoolCoins: 5000,
-      questionsCount: 5,
-      questions: [
-        {
-          id: 'q1',
-          question: 'Which clinical test demonstrates the highest diagnostic specificity for an Anterior Cruciate Ligament (ACL) tear?',
-          options: ['Lachman Test', 'Anterior Drawer Test', 'Pivot-Shift Test', 'McMurray Test'],
-          correctIndex: 2,
-          explanation: 'The Pivot-Shift test has the highest specificity (approx 98%) for ACL insufficiency, while the Lachman test has the highest sensitivity.',
-          category: 'Knee Orthopedics',
-        },
-        {
-          id: 'q2',
-          question: 'A 62-year-old stroke patient exhibits circumduction gait. What is the primary underlying biomechanical impairment?',
-          options: ['Weak hip abductors', 'Inadequate knee flexion & ankle dorsiflexion during swing phase', 'Spasticity in hamstrings', 'Weak quadriceps in stance phase'],
-          correctIndex: 1,
-          explanation: 'Circumduction gait compensates for lack of knee flexion and lack of ankle dorsiflexion (foot drop) to clear the paretic toe during swing phase.',
-          category: 'Neurological Rehab',
-        },
-        {
-          id: 'q3',
-          question: 'In dry needling of the Upper Trapezius muscle, what critical anatomical boundary must be respected to avoid pneumothorax?',
-          options: ['Direct needle horizontally against the ribs', 'Direct needle infero-medially towards apex of lung', 'Pincer palpation lifting muscle belly away from apex of lung', 'Angle needle posteriorly towards C7 spinous process'],
-          correctIndex: 2,
-          explanation: 'Pincer palpation isolating the muscle belly and directing the needle antero-posteriorly or towards the therapist thumb prevents pleura penetration.',
-          category: 'Modalities & Safety',
-        },
-        {
-          id: 'q4',
-          question: 'What is the gold standard clinical assessment threshold indicating positive Spurling test for Cervical Radiculopathy?',
-          options: ['Neck flexion reproducing local pain', 'Axial compression in cervical extension and ipsilateral lateral flexion reproducing radiating radicular arm pain', 'Passive shoulder abduction relieving arm pain', 'Manual cervical traction aggravating pain'],
-          correctIndex: 1,
-          explanation: 'Spurling A/B test narrows neural foramina through extension, ipsilateral lateral flexion, and axial compression, reproducing radiating dermatomic symptoms.',
-          category: 'Spine Special Tests',
-        },
-        {
-          id: 'q5',
-          question: 'During post-op Day 14 Total Hip Arthroplasty (Posterior Approach), which combined hip movements remain strictly contraindicated?',
-          options: ['Abduction and external rotation', 'Flexion > 90°, Adduction past midline, and Internal Rotation', 'Extension and external rotation', 'Active knee flexion in prone'],
-          correctIndex: 1,
-          explanation: 'Posterior THA precautions mandate avoiding hip flexion beyond 90°, adduction across midline, and internal rotation to prevent posterior dislocation.',
-          category: 'Post-Surgical Rehab',
-        },
-      ],
-    };
+  /** GET /api/app/gaming/leaderboard */
+  public async getGamingLeaderboard(): Promise<any[]> {
+    const res = await apiGet('/api/app/gaming/leaderboard');
+    return unwrapList(res, 'leaderboard', 'entries');
+  }
+
+  /**
+   * POST /api/app/gaming/enter — the live daily tournament (questions, prize pool,
+   * entry fee, countdown) exactly as `DailyTournamentNotifier.enter()` fetches it.
+   */
+  public async getDailyTournament(): Promise<{ game: any; message?: string }> {
+    const res = await apiPost('/api/app/gaming/enter', { userId: this.getCurrentUserId() });
+    return { game: (res as any).game ?? unwrap(res), message: res.message };
+  }
+
+  /**
+   * POST /api/app/gaming/submit
+   * Body matches `GamingService.submitChallenge` exactly: { userId, gameType,
+   * isCorrect, timeTakenMs }. The server scores the entry and records it against
+   * today's leaderboard; one submission per game type per day.
+   */
+  public async submitDailyTournament(payload: {
+    gameType: string;
+    isCorrect: boolean;
+    timeTakenMs: number;
+  }): Promise<{ success: boolean; result?: any; message?: string }> {
+    const res = await apiPost('/api/app/gaming/submit', {
+      userId: this.getCurrentUserId(),
+      gameType: payload.gameType,
+      isCorrect: payload.isCorrect,
+      timeTakenMs: payload.timeTakenMs,
+    });
+    return { success: res.success !== false, result: unwrap(res), message: res.message };
+  }
+
+  /** POST /api/app/gaming/set-alias */
+  public async setGamingAlias(alias: string, avatarId?: string): Promise<{ success: boolean; profile?: any; message?: string }> {
+    const res = await apiPost('/api/app/gaming/set-alias', {
+      userId: this.getCurrentUserId(),
+      alias,
+      ...(avatarId ? { avatarId } : {}),
+    });
+    return { success: res.success !== false, profile: (res as any).profile, message: res.message };
+  }
+
+  /** GET /api/app/gaming/crosswords */
+  public async getActiveCrossword(): Promise<any> {
+    const res = await apiGet('/api/app/gaming/crosswords');
+    return unwrap(res);
+  }
+
+  /** POST /api/app/gaming/crosswords/submit */
+  public async submitCrossword(payload: Record<string, any>): Promise<any> {
+    const res = await apiPost('/api/app/gaming/crosswords/submit', {
+      userId: this.getCurrentUserId(),
+      ...payload,
+    });
+    return unwrap(res);
+  }
+
+  /** POST /api/app/gaming/buy-coins-from-wallet */
+  public async buyCoinsFromWallet(amount: number): Promise<{ success: boolean; result?: any; message?: string }> {
+    const res = await apiPost('/api/app/gaming/buy-coins-from-wallet', {
+      userId: this.getCurrentUserId(),
+      amount,
+    });
+    return { success: res.success !== false, result: unwrap(res), message: res.message };
+  }
+
+  /** POST /api/app/gaming/withdraw-coins-to-wallet */
+  public async withdrawCoinsToWallet(amount: number): Promise<{ success: boolean; result?: any; message?: string }> {
+    const res = await apiPost('/api/app/gaming/withdraw-coins-to-wallet', {
+      userId: this.getCurrentUserId(),
+      amount,
+    });
+    return { success: res.success !== false, result: unwrap(res), message: res.message };
+  }
+
+  /** POST /api/app/gaming/topic-quizzes/start */
+  public async startTopicQuiz(topicId: string): Promise<any> {
+    const res = await apiPost('/api/app/gaming/topic-quizzes/start', {
+      userId: this.getCurrentUserId(),
+      topicId,
+    });
+    return unwrap(res);
+  }
+
+  /** POST /api/app/gaming/topic-quizzes/submit */
+  public async submitTopicQuiz(payload: Record<string, any>): Promise<any> {
+    const res = await apiPost('/api/app/gaming/topic-quizzes/submit', {
+      userId: this.getCurrentUserId(),
+      ...payload,
+    });
+    return unwrap(res);
+  }
+
+  /** GET /api/app/gaming/topic-quizzes/:topicId/leaderboard */
+  public async getTopicQuizLeaderboard(topicId: string): Promise<any[]> {
+    const res = await apiGet(`/api/app/gaming/topic-quizzes/${encodeURIComponent(topicId)}/leaderboard`);
+    return unwrapList(res, 'leaderboard', 'entries');
   }
 
   // ==========================================
   // ATTENDANCE & DUTY TELEMETRY
   // ==========================================
 
-  public async recordAttendance(type: 'PUNCH_IN' | 'PUNCH_OUT', coords?: { lat: number; lng: number }): Promise<{ success: boolean; message: string; timestamp: string }> {
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/app/attendance/record`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify({ type, coords, timestamp: new Date().toISOString() }),
-      });
-      const data = await res.json();
-      return { success: data.success !== false, message: data.message || `Successfully recorded ${type.replace('_', ' ')}`, timestamp: new Date().toLocaleTimeString('en-IN') };
-    } catch {
-      return { success: true, message: `Attendance ${type === 'PUNCH_IN' ? 'Check-in' : 'Check-out'} recorded at ${new Date().toLocaleTimeString('en-IN')}`, timestamp: new Date().toLocaleTimeString('en-IN') };
-    }
+  /**
+   * POST /attendance — the exact endpoint and body `AttendanceNotifier.markAttendance`
+   * posts from the mobile app. Failures propagate rather than being reported as a
+   * successful punch, so the two clients agree on what was actually recorded.
+   */
+  public async recordAttendance(
+    type: 'PUNCH_IN' | 'PUNCH_OUT',
+    coords?: { lat: number; lng: number }
+  ): Promise<{ success: boolean; message: string; timestamp: string }> {
+    const now = new Date();
+    const user = this.getCachedUser();
+    const res = await apiPost('/attendance', {
+      staffId: this.getCurrentUserId(),
+      clinicId: user?.clinicId,
+      date: now.toISOString(),
+      status: type === 'PUNCH_IN' ? 'Clocked In' : 'Clocked Out',
+      time: now.toISOString(),
+      location: coords ? { latitude: coords.lat, longitude: coords.lng } : undefined,
+    });
+    return {
+      success: res.success !== false,
+      message: res.message || `Successfully recorded ${type.replace('_', ' ').toLowerCase()}`,
+      timestamp: now.toLocaleTimeString('en-IN'),
+    };
   }
 
   // ==========================================
   // INVOICES & RECEIPT GENERATOR
   // ==========================================
 
+  /**
+   * POST /api/app/patient/sendInvoice — the same endpoint `ApiService.sendPatientInvoice`
+   * calls. The backend mints and delivers the invoice, so the number that comes back is
+   * the one the patient and the mobile app see.
+   */
   public async generateInvoice(payload: {
+    patientId?: string;
     patientName: string;
     patientPhone?: string;
     treatmentType: string;
@@ -1697,12 +1648,20 @@ class ProviderApiService {
     addOns: Array<{ name: string; amount: number }>;
     paymentMethod: string;
     appointmentId?: string;
-  }): Promise<{ success: boolean; invoiceNumber: string; downloadUrl?: string; message?: string }> {
-    const invoiceNumber = `AX-INV-${new Date().getFullYear()}-${Math.floor(10000 + Math.random() * 90000)}`;
+  }): Promise<{ success: boolean; invoiceNumber?: string; downloadUrl?: string; message?: string }> {
+    const res = await apiPost('/api/app/patient/sendInvoice', {
+      expert: this.getCurrentUserId(),
+      ...payload,
+      totalAmount:
+        Number(payload.sessionFee || 0) +
+        (payload.addOns || []).reduce((sum, a) => sum + (Number(a.amount) || 0), 0),
+    });
+    const result = unwrap(res);
     return {
-      success: true,
-      invoiceNumber,
-      message: `Tax Invoice ${invoiceNumber} created successfully.`,
+      success: res.success !== false,
+      invoiceNumber: result?.invoiceNumber || result?.invoiceNo || result?.number,
+      downloadUrl: result?.downloadUrl || result?.invoiceUrl || result?.url,
+      message: res.message,
     };
   }
 
@@ -1710,402 +1669,586 @@ class ProviderApiService {
   // NOTIFICATIONS & ALERTS
   // ==========================================
 
-  public async getNotifications(): Promise<any[]> {
-    try {
-      const expertId = this.getCurrentUserId();
-      const res = await fetch(`${API_BASE_URL}/api/app/expert/fetchNotifications`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify({ user: expertId }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success !== false && Array.isArray(data.result || data.notifications)) {
-          return data.result || data.notifications;
-        }
-      }
-    } catch (_) {}
-    return [];
+  /** POST /api/app/notification/fetchNotifications — mirrors `NotificationProvider.load()`. */
+  public async getNotifications(limit = 50): Promise<any[]> {
+    const expertId = this.getCurrentUserId();
+    const res = await apiPost('/api/app/notification/fetchNotifications', {
+      expert: expertId,
+      limit,
+    });
+    return unwrapList(res, 'notifications');
+  }
+
+  /** PUT /api/app/notification/mark-read/:id */
+  public async markNotificationRead(id: string): Promise<{ success: boolean; message?: string }> {
+    const res = await apiPut(`/api/app/notification/mark-read/${id}`, {});
+    return { success: res.success !== false, message: res.message };
+  }
+
+  /** POST /api/app/notification/mark-all-read */
+  public async markAllNotificationsRead(expertId?: string): Promise<{ success: boolean; message?: string }> {
+    const res = await apiPost('/api/app/notification/mark-all-read', {
+      expert: expertId || this.getCurrentUserId() || '',
+    });
+    return { success: res.success !== false, message: res.message };
+  }
+
+  /** POST /api/app/notification/removeNotification */
+  public async removeNotification(notificationId: string): Promise<{ success: boolean; message?: string }> {
+    const res = await apiPost('/api/app/notification/removeNotification', { notificationId });
+    return { success: res.success !== false, message: res.message };
+  }
+
+  /** GET /api/app/notification/unread-count */
+  public async getUnreadNotificationCount(expertId?: string): Promise<number> {
+    const expId = expertId || this.getCurrentUserId();
+    const res = await apiGet(`/api/app/notification/unread-count?expert=${encodeURIComponent(expId || '')}`);
+    const value = (res as any).count ?? (res as any).result?.count ?? unwrap(res);
+    return Number(value) || 0;
   }
 
   // ==========================================
   // QUALITY METRICS & PATIENT REVIEWS
   // ==========================================
 
+  /**
+   * Quality & audit metrics.
+   *
+   * There is no `fetchQualityMetrics` endpoint. The real figures come from
+   * `POST /api/app/home/fetchLeadsTekenAnalysis` (its `metrics` block carries
+   * conversionRate, onTimePaymentRate, patientOnTimeRate and the conversion funnel) and
+   * from the therapist record (`qaScoreAverage`, `rating`, `cityRankPercentile`).
+   *
+   * Patient reviews are collected on Google, not stored per therapist in this backend —
+   * there is no endpoint that returns them and none that accepts a therapist reply. The
+   * flag below lets the UI say so rather than render an empty or invented review list.
+   */
   public async getQualityMetrics(): Promise<{
     clinicalComplianceScore: number;
     onTimeArrivalRate: number;
-    npsScore: number;
+    patientOnTimeRate: number;
+    payoutOnTimeRate: number;
+    conversionRate: number;
     averageRating: number;
-    totalReviewsCount: number;
-    ratingBreakdown: { 5: number; 4: number; 3: number; 2: number; 1: number };
-    reviews: Array<{
-      id: string;
-      patientName: string;
-      rating: number;
-      date: string;
-      condition: string;
-      comment: string;
-      therapistReply?: string;
-    }>;
+    cityRankPercentile?: number;
+    conversionFunnel?: { leadsTaken: number; assessmentsDone: number; convertedToPackage: number };
+    metrics: any;
+    reviewsAvailable: false;
   }> {
-    try {
-      const expertId = this.getCurrentUserId();
-      const res = await fetch(`${API_BASE_URL}/api/app/expert/fetchQualityMetrics`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify({ user: expertId }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success !== false && data.result) {
-          return data.result;
-        }
-      }
-    } catch (_) {}
+    const expId = this.getCurrentUserId();
+
+    const [analysis, profileRes] = await Promise.all([
+      this.fetchLeadsTakenAnalysis(expId || undefined),
+      expId ? this.refreshUser(expId).catch(() => null) : Promise.resolve(null),
+    ]);
+
+    const metrics = analysis.metrics || {};
+    const profile = profileRes?.result || null;
 
     return {
-      clinicalComplianceScore: 0,
-      onTimeArrivalRate: 0,
-      npsScore: 0,
-      averageRating: 0,
-      totalReviewsCount: 0,
-      ratingBreakdown: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 },
-      reviews: [],
+      clinicalComplianceScore: Number(profile?.qaScoreAverage ?? 0) || 0,
+      onTimeArrivalRate: Number(metrics.onTimePaymentRate ?? 0) || 0,
+      patientOnTimeRate: Number(metrics.patientOnTimeRate ?? 0) || 0,
+      payoutOnTimeRate: Number(metrics.physioOnTimeRate ?? 0) || 0,
+      conversionRate: Number(metrics.conversionRate ?? 0) || 0,
+      averageRating: Number(profile?.rating ?? 0) || 0,
+      cityRankPercentile: profile?.cityRankPercentile,
+      conversionFunnel: metrics.conversionFunnel,
+      metrics,
+      reviewsAvailable: false,
     };
+  }
+
+  /** GET /api/app/feedback/public — published patient feedback (mobile feedback module). */
+  public async getPublicFeedback(): Promise<any[]> {
+    const res = await apiGet('/api/app/feedback/public');
+    return unwrapList(res, 'feedback', 'feedbacks');
+  }
+
+  /** POST /api/app/feedback/submit — mirrors the mobile feedback submission. */
+  public async submitFeedback(payload: Record<string, any>): Promise<{ success: boolean; message?: string }> {
+    const res = await apiPost('/api/app/feedback/submit', payload);
+    return { success: res.success !== false, message: res.message };
   }
 
   // ==========================================
   // SUPPORT TICKETS & FAQ (1:1 Mobile Parity)
   // ==========================================
 
+  /** POST /api/app/supportTicket/fetchSupportTickets  body: { expert } */
   public async getSupportTickets(expertId?: string): Promise<any[]> {
     const expId = expertId || this.getCurrentUserId();
-    try {
-      const res = await fetch(`/api/app/supportTicket/fetchSupportTickets`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify({ expert: expId }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const list = data.result || data.tickets || data.data || [];
-        if (Array.isArray(list)) return list;
-      }
-    } catch (_) {}
-    return [];
+    const res = await apiPost('/api/app/supportTicket/fetchSupportTickets', { expert: expId });
+    return unwrapList(res, 'tickets', 'supportTickets');
   }
 
+  /** POST /api/app/faq/fetchFaqs — the same FAQ set the mobile help centre renders. */
   public async fetchFaqs(): Promise<any[]> {
-    try {
-      const res = await fetch(`/api/app/faq/fetchFaqs`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const list = data.result || data.faqs || data.data || [];
-        if (Array.isArray(list)) return list;
-      }
-    } catch (_) {}
-    return [];
+    const res = await apiPost('/api/app/faq/fetchFaqs');
+    return unwrapList(res, 'faqs');
   }
 
   // ==========================================
   // EMERGENCY SOS
   // ==========================================
 
-  public async startSOS(coords?: { lat: number; lng: number }): Promise<{ success: boolean; result?: any; message?: string }> {
-    try {
-      const res = await fetch(`/api/app/sos/start`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify({ expert: this.getCurrentUserId(), location: coords }),
-      });
-      const data = await res.json();
-      return { success: data.success !== false, result: data.result || data.data, message: data.message };
-    } catch (e: any) {
-      return { success: false, message: e.message };
-    }
+  /**
+   * POST /api/app/sos/start — identical body to `SosService.triggerSOS`
+   * (therapistName, phone, type, location{latitude,longitude,accuracy}).
+   * Returns the backend `sosSessionId` used for telemetry and resolution.
+   */
+  public async startSOS(
+    coords?: { lat: number; lng: number; accuracy?: number },
+    type: 'THERAPIST_THREAT' | 'PATIENT_EMERGENCY' | string = 'THERAPIST_THREAT'
+  ): Promise<{ success: boolean; sosSessionId?: string; result?: any; message?: string }> {
+    const user = this.getCachedUser();
+    const res = await apiPost('/api/app/sos/start', {
+      therapistName: user?.fullName || user?.name || '',
+      phone: user?.phone || user?.mobileNo || '',
+      type,
+      location: {
+        latitude: coords?.lat,
+        longitude: coords?.lng,
+        accuracy: coords?.accuracy ?? 0,
+      },
+    });
+    return {
+      success: res.success !== false,
+      sosSessionId: (res as any).sosSessionId || unwrap(res)?._id,
+      result: unwrap(res),
+      message: res.message,
+    };
   }
 
+  /**
+   * PATCH /api/app/sos/:sessionId/location — live telemetry, same body as the
+   * mobile `_startTelemetry()` loop so the admin SOS console sees one stream.
+   */
+  public async updateSOSLocation(
+    sessionId: string,
+    telemetry: { lat: number; lng: number; accuracy?: number; batteryLevel?: number; networkStrength?: string }
+  ): Promise<{ success: boolean }> {
+    const res = await apiPatch(`/api/app/sos/${sessionId}/location`, {
+      lat: telemetry.lat,
+      lng: telemetry.lng,
+      accuracy: telemetry.accuracy ?? 0,
+      batteryLevel: telemetry.batteryLevel,
+      networkStrength: telemetry.networkStrength || 'Unknown',
+      timestamp: new Date().toISOString(),
+    });
+    return { success: res.success !== false };
+  }
+
+  /**
+   * GET /api/app/sos/my — the active session for this provider.
+   * Mobile reads `res['data']` (a single session object); normalised to a list here.
+   */
   public async getMySOS(): Promise<any[]> {
-    try {
-      const res = await fetch(`/api/app/sos/my`, { method: 'GET', headers: this.getHeaders() });
-      if (res.ok) {
-        const data = await res.json();
-        const list = data.result || data.data || [];
-        if (Array.isArray(list)) return list;
-      }
-    } catch (_) {}
-    return [];
+    const res = await apiGet('/api/app/sos/my');
+    const payload = unwrap(res);
+    if (!payload) return [];
+    return Array.isArray(payload) ? payload : [payload];
   }
 
-  public async resolveSOS(sosId: string): Promise<{ success: boolean; message?: string }> {
-    try {
-      const res = await fetch(`/api/app/sos/${sosId}/resolve`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-      });
-      const data = await res.json();
-      return { success: data.success !== false, message: data.message };
-    } catch (e: any) {
-      return { success: false, message: e.message };
-    }
+  /** POST /api/app/sos/:sessionId/resolve — requires the resolution PIN, as in mobile. */
+  public async resolveSOS(sosId: string, pin: string): Promise<{ success: boolean; message?: string }> {
+    const res = await apiPost(`/api/app/sos/${sosId}/resolve`, { pin });
+    return { success: res.success !== false, message: res.message };
   }
 
+  /** POST /api/app/therapistEmergencyContact/fetchEmergencyContacts */
+  public async fetchEmergencyContacts(expertId?: string): Promise<any[]> {
+    const res = await apiPost('/api/app/therapistEmergencyContact/fetchEmergencyContacts', {
+      expert: expertId || this.getCurrentUserId(),
+    });
+    return unwrapList(res, 'contacts');
+  }
+
+  /** POST /api/app/therapistEmergencyContact/createOrUpdateEmergencyContact */
+  public async saveEmergencyContact(payload: {
+    id?: string;
+    name: string;
+    phone: string;
+    relation?: string;
+  }): Promise<{ success: boolean; message?: string }> {
+    const res = await apiPost('/api/app/therapistEmergencyContact/createOrUpdateEmergencyContact', {
+      expert: this.getCurrentUserId(),
+      ...payload,
+    });
+    return { success: res.success !== false, message: res.message };
+  }
+
+  /** POST /api/app/therapistEmergencyContact/deleteEmergencyContact */
+  public async deleteEmergencyContact(id: string): Promise<{ success: boolean; message?: string }> {
+    const res = await apiPost('/api/app/therapistEmergencyContact/deleteEmergencyContact', { id });
+    return { success: res.success !== false, message: res.message };
+  }
+
+  /** POST /api/app/quickDial/fetchQuickDials — emergency quick-dial directory. */
   public async getQuickDials(): Promise<any[]> {
-    try {
-      const res = await fetch(`/api/app/quickDial/fetchQuickDials`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const list = data.result || data.data || [];
-        if (Array.isArray(list)) return list;
-      }
-    } catch (_) {}
-    return [];
+    const res = await apiPost('/api/app/quickDial/fetchQuickDials');
+    return unwrapList(res, 'quickDials');
   }
 
   // ==========================================
   // APP SETTINGS (Notifications, Quiet Hours, Visibility)
   // ==========================================
 
+  /**
+   * POST /api/app/expert/notificationEnableOrDisable
+   * Mirrors `ApiService.expertUpdateNotificationSettings` — the backend stores one
+   * flag per channel plus the tone, so the mobile settings screen and this one write
+   * the same document.
+   */
+  public async updateNotificationSettings(payload: {
+    enablePushNotification?: boolean;
+    enableEmailNotification?: boolean;
+    enableWhatsAppNotification?: boolean;
+    enableSMSNotification?: boolean;
+    notificationTone?: string;
+  }): Promise<{ success: boolean; result?: MobileExpertProfile; message?: string }> {
+    const res = await apiPost('/api/app/expert/notificationEnableOrDisable', {
+      user: this.getCurrentUserId(),
+      ...payload,
+    });
+    return {
+      success: res.success !== false,
+      result: res.result ? this.normalizeExpertProfile(res.result) : undefined,
+      message: res.message,
+    };
+  }
+
+  /** Convenience wrapper: toggle push notifications only. */
   public async setNotificationEnabled(enabled: boolean): Promise<{ success: boolean; message?: string }> {
-    try {
-      const res = await fetch(`/api/app/expert/notificationEnableOrDisable`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify({ user: this.getCurrentUserId(), isNotificationEnabled: enabled }),
-      });
-      const data = await res.json();
-      return { success: data.success !== false, message: data.message };
-    } catch (e: any) {
-      return { success: false, message: e.message };
-    }
+    return this.updateNotificationSettings({ enablePushNotification: enabled });
   }
 
-  public async updateQuietHours(payload: { enabled: boolean; start?: string; end?: string }): Promise<{ success: boolean; message?: string }> {
-    try {
-      const res = await fetch(`/api/app/expert/updateQuietHours`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify({ user: this.getCurrentUserId(), ...payload }),
-      });
-      const data = await res.json();
-      return { success: data.success !== false, message: data.message };
-    } catch (e: any) {
-      return { success: false, message: e.message };
-    }
+  /** POST /api/app/expert/updateQuietHours — mirrors `ApiService.expertUpdateQuietHours`. */
+  public async updateQuietHours(payload: {
+    enabled: boolean;
+    start?: string;
+    end?: string;
+  }): Promise<{ success: boolean; result?: MobileExpertProfile; message?: string }> {
+    const res = await apiPost('/api/app/expert/updateQuietHours', {
+      user: this.getCurrentUserId(),
+      isQuietHoursEnabled: payload.enabled,
+      quietHoursFrom: payload.start,
+      quietHoursTo: payload.end,
+    });
+    return {
+      success: res.success !== false,
+      result: res.result ? this.normalizeExpertProfile(res.result) : undefined,
+      message: res.message,
+    };
   }
 
+  /** POST /api/app/expert/isActivityTracking */
   public async setActivityTracking(enabled: boolean): Promise<{ success: boolean; message?: string }> {
-    try {
-      const res = await fetch(`/api/app/expert/isActivityTracking`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify({ user: this.getCurrentUserId(), isActivityTracking: enabled }),
-      });
-      const data = await res.json();
-      return { success: data.success !== false, message: data.message };
-    } catch (e: any) {
-      return { success: false, message: e.message };
-    }
+    const res = await apiPost('/api/app/expert/isActivityTracking', {
+      user: this.getCurrentUserId(),
+      isActivityTracking: enabled,
+    });
+    return { success: res.success !== false, message: res.message };
   }
 
+  /** POST /api/app/expert/isProfileVisible */
   public async setProfileVisible(visible: boolean): Promise<{ success: boolean; message?: string }> {
-    try {
-      const res = await fetch(`/api/app/expert/isProfileVisible`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify({ user: this.getCurrentUserId(), isProfileVisible: visible }),
-      });
-      const data = await res.json();
-      return { success: data.success !== false, message: data.message };
-    } catch (e: any) {
-      return { success: false, message: e.message };
-    }
+    const res = await apiPost('/api/app/expert/isProfileVisible', {
+      user: this.getCurrentUserId(),
+      isProfileVisible: visible,
+    });
+    return { success: res.success !== false, message: res.message };
   }
 
   // ==========================================
   // AI CLINICAL BUDDY
   // ==========================================
 
+  /** GET /api/app/buddy/profile — mirrors `BuddyService.fetchProfile()`. */
   public async getBuddyProfile(): Promise<any> {
-    try {
-      const res = await fetch(`/api/app/buddy/profile?userId=${this.getCurrentUserId()}`, {
-        method: 'GET',
-        headers: this.getHeaders(),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        return data.result || data.data || null;
-      }
-    } catch (_) {}
-    return null;
+    const res = await apiGet('/api/app/buddy/profile');
+    return unwrap(res);
   }
 
+  /** POST /api/app/buddy/profile — persist companion identity/personality. */
+  public async saveBuddyProfile(payload: Record<string, any>): Promise<{ success: boolean; result?: any; message?: string }> {
+    const res = await apiPost('/api/app/buddy/profile', payload);
+    return { success: res.success !== false, result: unwrap(res), message: res.message };
+  }
+
+  /** GET /api/app/buddy/dashboard — missions, streaks and life events. */
   public async getBuddyDashboard(): Promise<any> {
-    try {
-      const res = await fetch(`/api/app/buddy/dashboard?userId=${this.getCurrentUserId()}`, {
-        method: 'GET',
-        headers: this.getHeaders(),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        return data.result || data.data || null;
-      }
-    } catch (_) {}
-    return null;
+    const res = await apiGet('/api/app/buddy/dashboard');
+    return unwrap(res);
   }
 
-  public async sendBuddyChat(message: string, sessionId?: string): Promise<{ success: boolean; reply?: string; sessionId?: string; message?: string }> {
-    try {
-      const res = await fetch(`/api/app/buddy/chat`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify({ userId: this.getCurrentUserId(), message, sessionId }),
-      });
-      const data = await res.json();
-      return {
-        success: data.success !== false,
-        reply: data.result?.reply || data.reply || data.result?.message,
-        sessionId: data.result?.sessionId || data.sessionId,
-        message: data.message,
-      };
-    } catch (e: any) {
-      return { success: false, message: e.message };
-    }
+  /**
+   * POST /api/app/buddy/chat — the same clinical-companion endpoint the mobile app
+   * talks to, so conversation history is shared between the two clients.
+   */
+  public async sendBuddyChat(message: string, sessionId?: string): Promise<{ success: boolean; reply?: string; sessionId?: string; result?: any; message?: string }> {
+    const res = await apiPost('/api/app/buddy/chat', { message, ...(sessionId ? { sessionId } : {}) });
+    const result = unwrap(res);
+    return {
+      success: res.success !== false,
+      reply: result?.reply || result?.message || (res as any).reply,
+      sessionId: result?.sessionId || (res as any).sessionId,
+      result,
+      message: res.message,
+    };
+  }
+
+  /** POST /api/app/buddy/chat/session — start a fresh companion session. */
+  public async startBuddySession(): Promise<any> {
+    const res = await apiPost('/api/app/buddy/chat/session');
+    return unwrap(res);
+  }
+
+  /** POST /api/app/buddy/chat/session/active — switch the active session. */
+  public async setActiveBuddySession(sessionId: string): Promise<{ success: boolean }> {
+    const res = await apiPost('/api/app/buddy/chat/session/active', { sessionId });
+    return { success: res.success !== false };
+  }
+
+  /** DELETE /api/app/buddy/chat/session/:sessionId */
+  public async deleteBuddySession(sessionId: string): Promise<{ success: boolean }> {
+    const res = await apiDelete(`/api/app/buddy/chat/session/${sessionId}`);
+    return { success: res.success !== false };
+  }
+
+  /** POST /api/app/buddy/mission/complete */
+  public async completeBuddyMission(taskId: string): Promise<{ success: boolean; result?: any }> {
+    const res = await apiPost('/api/app/buddy/mission/complete', { taskId });
+    return { success: res.success !== false, result: unwrap(res) };
+  }
+
+  /** POST /api/app/buddy/life-event/celebrated */
+  public async markLifeEventCelebrated(eventId: string): Promise<{ success: boolean }> {
+    const res = await apiPost('/api/app/buddy/life-event/celebrated', { eventId });
+    return { success: res.success !== false };
+  }
+
+  /** GET /api/app/ai/history — shared AI consultation history. */
+  public async getAiHistory(): Promise<any[]> {
+    const res = await apiGet('/api/app/ai/history');
+    return unwrapList(res, 'history', 'messages');
   }
 
   // ==========================================
   // REWARDS & GAMING BONUSES
   // ==========================================
 
+  /** GET /api/app/gaming/bonus-offers */
   public async getBonusOffers(): Promise<any[]> {
-    try {
-      const res = await fetch(`/api/app/gaming/bonus-offers?userId=${this.getCurrentUserId()}`, {
-        method: 'GET',
-        headers: this.getHeaders(),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const list = data.result || data.data || [];
-        if (Array.isArray(list)) return list;
-      }
-    } catch (_) {}
-    return [];
+    const res = await apiGet(`/api/app/gaming/bonus-offers?userId=${encodeURIComponent(this.getCurrentUserId() || '')}`);
+    return unwrapList(res, 'offers', 'bonusOffers');
   }
 
+  /**
+   * POST /api/app/gaming/profile  body: { userId }
+   * The controller answers `{ success, profile }` (gaming.controller.ts), where the
+   * profile carries alias, coins, points, xp, league, streakDays and activeTier.
+   */
   public async getGamingProfile(): Promise<any> {
-    try {
-      const res = await fetch(`/api/app/gaming/profile?userId=${this.getCurrentUserId()}`, {
-        method: 'GET',
-        headers: this.getHeaders(),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        return data.result || data.data || null;
-      }
-    } catch (_) {}
-    return null;
+    const res = await apiPost('/api/app/gaming/profile', { userId: this.getCurrentUserId() });
+    return (res as any).profile ?? unwrap(res);
   }
 
-  public async claimBonus(bonusId: string): Promise<{ success: boolean; message?: string }> {
-    try {
-      const res = await fetch(`/api/app/gaming/claim-bonus`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify({ userId: this.getCurrentUserId(), bonusId }),
-      });
-      const data = await res.json();
-      return { success: data.success !== false, message: data.message };
-    } catch (e: any) {
-      return { success: false, message: e.message };
-    }
+  /** POST /api/app/gaming/claim-bonus */
+  public async claimBonus(bonusId: string): Promise<{ success: boolean; result?: any; message?: string }> {
+    const res = await apiPost('/api/app/gaming/claim-bonus', {
+      userId: this.getCurrentUserId(),
+      bonusId,
+    });
+    return { success: res.success !== false, result: unwrap(res), message: res.message };
   }
 
   // ==========================================
   // CLINICAL ACADEMY (TRAINING) — Proactive Tasks & Quizzes
   // ==========================================
 
+  /** GET /api/app/gaming/topic-quizzes?userId= — mirrors `topicQuizzesProvider`. */
   public async getTopicQuizzes(): Promise<any[]> {
-    try {
-      const res = await fetch(`/api/app/gaming/topic-quizzes?userId=${this.getCurrentUserId()}`, {
-        method: 'GET',
-        headers: this.getHeaders(),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const list = data.result || data.data || [];
-        if (Array.isArray(list)) return list;
-      }
-    } catch (_) {}
-    return [];
+    const res = await apiGet(`/api/app/gaming/topic-quizzes?userId=${encodeURIComponent(this.getCurrentUserId() || '')}`);
+    return unwrapList(res, 'quizzes', 'topics');
   }
 
+  /**
+   * POST /api/app/gaming/proactive-task — mirrors `proactiveTasksProvider`, which
+   * POSTs with the userId and treats the response as the task list.
+   */
   public async getProactiveTasks(): Promise<any[]> {
-    try {
-      const res = await fetch(`/api/app/gaming/proactive-task?userId=${this.getCurrentUserId()}`, {
-        method: 'GET',
-        headers: this.getHeaders(),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const list = data.result || data.data || [];
-        if (Array.isArray(list)) return list;
-      }
-    } catch (_) {}
-    return [];
+    const res = await apiPost('/api/app/gaming/proactive-task', { userId: this.getCurrentUserId() });
+    return unwrapList(res, 'tasks', 'proactiveTasks');
+  }
+
+  /** POST /api/app/gaming/proactive-task — submit a completed proactive task. */
+  public async submitProactiveTask(payload: Record<string, any>): Promise<{ success: boolean; result?: any; message?: string }> {
+    const res = await apiPost('/api/app/gaming/proactive-task', {
+      userId: this.getCurrentUserId(),
+      ...payload,
+    });
+    return { success: res.success !== false, result: unwrap(res), message: res.message };
   }
 
   // ==========================================
   // TELEHEALTH
   // ==========================================
 
+  /** POST /api/app/appointment/:appointmentId/start-telehealth */
   public async startTelehealth(appointmentId: string): Promise<{ success: boolean; result?: any; message?: string }> {
-    try {
-      const res = await fetch(`/api/app/appointment/${appointmentId}/start-telehealth`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-      });
-      const data = await res.json();
-      return { success: data.success !== false, result: data.result || data.data, message: data.message };
-    } catch (e: any) {
-      return { success: false, message: e.message };
-    }
+    const res = await apiPost(`/api/app/appointment/${appointmentId}/start-telehealth`);
+    return { success: res.success !== false, result: unwrap(res), message: res.message };
   }
 
+  /** POST /api/app/appointment/:appointmentId/end-telehealth */
   public async endTelehealth(appointmentId: string): Promise<{ success: boolean; message?: string }> {
-    try {
-      const res = await fetch(`/api/app/appointment/${appointmentId}/end-telehealth`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-      });
-      const data = await res.json();
-      return { success: data.success !== false, message: data.message };
-    } catch (e: any) {
-      return { success: false, message: e.message };
-    }
+    const res = await apiPost(`/api/app/appointment/${appointmentId}/end-telehealth`);
+    return { success: res.success !== false, message: res.message };
   }
 
+  /**
+   * PUT /api/app/appointment/:appointmentId/assessment
+   * The backend registers this as a PUT (appointment.route.ts) and the mobile
+   * `TelehealthService.submitAssessment` uses PUT — a POST here would 404.
+   */
   public async submitTelehealthAssessment(
     appointmentId: string,
     payload: { exercises: Array<{ name: string; sets: string; reps: string; hold: string }>; notes?: string }
   ): Promise<{ success: boolean; message?: string }> {
-    try {
-      const res = await fetch(`/api/app/appointment/${appointmentId}/assessment`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json();
-      return { success: data.success !== false, message: data.message };
-    } catch (e: any) {
-      return { success: false, message: e.message };
-    }
+    const res = await apiPut(`/api/app/appointment/${appointmentId}/assessment`, payload);
+    return { success: res.success !== false, message: res.message };
+  }
+
+  // ==========================================
+  // APPOINTMENT WRITES, TREATMENTS & CONFIG (mobile parity)
+  // ==========================================
+
+  /** POST /api/app/appointment/createAppointmentFromTherapist */
+  public async createAppointment(payload: Record<string, any>): Promise<{ success: boolean; result?: any; message?: string }> {
+    const res = await apiPost('/api/app/appointment/createAppointmentFromTherapist', {
+      therapist: this.getCurrentUserId(),
+      ...payload,
+    });
+    return { success: res.success !== false, result: unwrap(res), message: res.message };
+  }
+
+  /** POST /api/app/appointment/rescheduleAppointment */
+  public async rescheduleAppointment(payload: {
+    appointmentId: string;
+    appointmentDate: string;
+    appointmentTime?: string;
+    reason?: string;
+  }): Promise<{ success: boolean; result?: any; message?: string }> {
+    const res = await apiPost('/api/app/appointment/rescheduleAppointment', payload);
+    return { success: res.success !== false, result: unwrap(res), message: res.message };
+  }
+
+  /** GET /api/app/appointment/:appointmentId/payment-status */
+  public async getAppointmentPaymentStatus(appointmentId: string): Promise<any> {
+    const res = await apiGet(`/api/app/appointment/${appointmentId}/payment-status`);
+    return unwrap(res);
+  }
+
+  /** GET /api/app/patient/fetchPatientById/:id */
+  public async getPatientById(patientId: string): Promise<any> {
+    const res = await apiGet(`/api/app/patient/fetchPatientById/${patientId}`);
+    return unwrap(res);
+  }
+
+  /** PUT /api/app/patient/update/:patientId */
+  public async updatePatient(patientId: string, payload: Record<string, any>): Promise<{ success: boolean; result?: any; message?: string }> {
+    const res = await apiPut(`/api/app/patient/update/${patientId}`, payload);
+    return { success: res.success !== false, result: unwrap(res), message: res.message };
+  }
+
+  /** POST /api/app/treatment/fetchTreatments — treatment catalogue used by the visit form. */
+  public async fetchTreatments(): Promise<any[]> {
+    const res = await apiPost('/api/app/treatment/fetchTreatments', {});
+    return unwrapList(res, 'treatments');
+  }
+
+  /** POST /api/app/appConfig/getAppConfigs — dynamic config blocks, same `types` body as mobile. */
+  public async getAppConfigs(types: string[]): Promise<any> {
+    const res = await apiPost('/api/app/appConfig/getAppConfigs', { types });
+    return unwrap(res);
+  }
+
+  /** GET /api/admin/mobile-config — themes, legal copy, fees and FAQs (mobile config service). */
+  public async getMobileConfig(params?: Record<string, string>): Promise<any> {
+    const query = params ? `?${new URLSearchParams(params).toString()}` : '';
+    const res = await apiGet(`/api/admin/mobile-config${query}`);
+    return unwrap(res);
+  }
+
+  /** POST /api/app/transaction/createTransaction */
+  public async createTransaction(payload: Record<string, any>): Promise<{ success: boolean; result?: any; message?: string }> {
+    const res = await apiPost('/api/app/transaction/createTransaction', payload);
+    return { success: res.success !== false, result: unwrap(res), message: res.message };
+  }
+
+  /** POST /api/app/transaction/verifyCashfreeTransaction */
+  public async verifyCashfreeTransaction(orderId: string): Promise<{ success: boolean; result?: any; message?: string }> {
+    const res = await apiPost('/api/app/transaction/verifyCashfreeTransaction', { orderId });
+    return { success: res.success !== false, result: unwrap(res), message: res.message };
+  }
+
+  /** POST /api/app/payments/generate-qr — UPI QR for in-visit collection. */
+  public async generatePaymentQr(payload: Record<string, any>): Promise<any> {
+    const res = await apiPost('/api/app/payments/generate-qr', payload);
+    return unwrap(res);
+  }
+
+  /** GET /api/app/payments/status/:orderId */
+  public async getPaymentStatus(orderId: string): Promise<any> {
+    const res = await apiGet(`/api/app/payments/status/${orderId}`);
+    return unwrap(res);
+  }
+
+  /** GET /api/app/appointments/payments/gateways-config */
+  public async getPaymentGatewaysConfig(): Promise<any> {
+    const res = await apiGet('/api/app/appointments/payments/gateways-config');
+    return unwrap(res);
+  }
+
+  /**
+   * Availability & service coverage.
+   *
+   * Mobile has no dedicated availability endpoint: the "where and when I work" data
+   * lives on the therapist record (`areaOfServiceInfo` + `isTherapistActive`), edited
+   * through `addAreaOfServiceInfo`. This reads the same record so both apps agree.
+   */
+  public async getAvailability(expertId?: string): Promise<{
+    isAcceptingLeads: boolean;
+    city: string;
+    serviceAreas: string[];
+    targetPincodes: string[];
+    serviceRadius: number;
+    maxDistance: number;
+    commuteType: string;
+    travelCapacity: string;
+    travelTimePreference: string;
+    urgentVisits: boolean;
+  }> {
+    const expId = expertId || this.getCurrentUserId();
+    if (!expId) throw new ApiError('No authenticated provider — cannot load availability.', 401);
+
+    const res = await this.refreshUser(expId);
+    const profile = res.result;
+    const area = profile?.areaOfServiceInfo || {};
+
+    return {
+      isAcceptingLeads: profile?.isTherapistActive ?? false,
+      city: area.city || profile?.city || '',
+      serviceAreas: area.serviceAreas || [],
+      targetPincodes: area.targetPincodes || [],
+      serviceRadius: Number(area.serviceRadius ?? 10),
+      maxDistance: Number(area.maxDistance ?? 20),
+      commuteType: area.commuteType || '',
+      travelCapacity: area.travelCapacity || '',
+      travelTimePreference: area.travelTimePreference || 'Anytime',
+      urgentVisits: area.urgentVisits ?? false,
+    };
   }
 
   /** Telehealth-eligible appointments = live appointments filtered client-side by consultationType/mode */
@@ -2147,8 +2290,9 @@ export async function fetchIncomingLeads(): Promise<LeadBroadcast[]> {
 export async function respondToLeadBroadcast(
   leadId: string,
   response: 'ACCEPTED' | 'DECLINED' | 'ACCEPT' | 'DECLINE'
-): Promise<{ success: boolean }> {
-  return { success: true };
+): Promise<{ success: boolean; message?: string }> {
+  const accepted = response === 'ACCEPTED' || response === 'ACCEPT';
+  return accepted ? providerApi.expressInterest(leadId) : providerApi.passLead(leadId);
 }
 
 export function resolveProfileImage(photo?: string | null): string | null {
@@ -2157,6 +2301,8 @@ export function resolveProfileImage(photo?: string | null): string | null {
     return photo;
   }
   const clean = photo.startsWith('/') ? photo : `/${photo}`;
-  return `https://api.ariesxpert.com${clean}`;
+  // Same normalisation as mobile's `UserModel._normalizeUrl` — relative asset paths are
+  // resolved against the configured backend origin, not a hard-coded host.
+  return `${getBackendOrigin()}${clean}`;
 }
 

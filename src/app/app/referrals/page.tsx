@@ -29,11 +29,12 @@ export default function ProviderReferralsPage() {
   const [copiedLink, setCopiedLink] = useState(false);
   const [referralList, setReferralList] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [doctorName, setDoctorName] = useState('');
   const [doctorMobile, setDoctorMobile] = useState('');
   const [specialization, setSpecialization] = useState('Physiotherapist');
-  const [city, setCity] = useState(user?.city || 'Mumbai');
+  const [city, setCity] = useState(user?.city || '');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
 
@@ -53,8 +54,10 @@ export default function ProviderReferralsPage() {
       } else {
         setReferralList([]);
       }
-    } catch (_) {
-      setReferralList([]);
+      setLoadError(null);
+    } catch (err: any) {
+      // An unreachable backend must not be shown as "no referrals yet".
+      setLoadError(err?.message || 'Could not load your referrals from the server.');
     } finally {
       setIsLoading(false);
     }
@@ -106,6 +109,12 @@ export default function ProviderReferralsPage() {
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
+      {loadError && (
+        <div className="p-4 rounded-2xl text-xs font-bold flex items-center gap-2 bg-red-500/10 text-red-600 border border-red-500/30">
+          <span>{loadError}</span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>

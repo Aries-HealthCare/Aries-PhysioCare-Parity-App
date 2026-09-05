@@ -138,6 +138,8 @@ export function DynamicFormRenderer({
     return Object.keys(newErrors).length === 0;
   };
 
+  const [submitError, setSubmitError] = React.useState<string | null>(null);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedForm) return;
@@ -167,14 +169,22 @@ export function DynamicFormRenderer({
         })),
       };
 
-      await providerApi.submitAssessmentResponse(payload);
+      const res = await providerApi.submitAssessmentResponse(payload);
+      if (!res.success) {
+        throw new Error(res.message || 'The server rejected this assessment.');
+      }
 
       // Clear draft on success
       localStorage.removeItem(`form_draft_${appointmentId}_${selectedForm._id}`);
+      setSubmitError(null);
       onSubmitted(formData);
-    } catch (err) {
-      console.warn('Form submission fallback:', err);
-      onSubmitted(formData);
+    } catch (err: any) {
+      // Clinical data must be durably persisted before the visit advances — the mobile
+      // `VisitFlowService` keeps the form in memory and rethrows rather than pretending
+      // it saved. The draft stays in localStorage so nothing typed is lost.
+      setSubmitError(
+        err?.message || 'Could not save this assessment. Your answers are kept — please retry.'
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -491,6 +501,12 @@ export function DynamicFormRenderer({
             </div>
           </div>
         ))}
+
+        {submitError && (
+          <div className="p-4 rounded-2xl text-xs font-bold bg-destructive/10 border border-destructive/30 text-destructive">
+            {submitError}
+          </div>
+        )}
 
         {/* Action Controls */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">

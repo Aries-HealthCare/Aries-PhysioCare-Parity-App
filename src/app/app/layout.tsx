@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import { useProviderAuth } from '@/services/provider-auth-context';
-import { resolveProfileImage } from '@/services/provider-api';
+import { ProviderRealtimeProvider, useProviderRealtime } from '@/services/provider-realtime';
+import { providerApi, resolveProfileImage } from '@/services/provider-api';
 import { DynamicAppLogo } from '@/components/ui/dynamic-app-logo';
 import { PwaInstallPrompt } from '@/components/pwa/pwa-install-prompt';
 import {
@@ -71,7 +72,7 @@ const NAV_ITEMS = [
   { href: '/app/training', label: 'Clinical Academy', icon: GraduationCap },
   { href: '/app/availability', label: 'Availability & Slots', icon: Clock },
   { href: '/app/documents', label: 'KYC Documents', icon: FileText },
-  { href: '/app/notifications', label: 'Notifications', icon: Bell, badge: '3' },
+  { href: '/app/notifications', label: 'Notifications', icon: Bell },
   { href: '/app/support', label: 'Support & Tickets', icon: HelpCircle },
   { href: '/app/settings', label: 'App Settings', icon: Settings },
 ];
@@ -84,15 +85,38 @@ const MOBILE_BOTTOM_TABS = [
   { href: '/app/wallet', label: 'Wallet', icon: Wallet },
 ];
 
-export default function ProviderAppLayout({ children }: { children: React.ReactNode }) {
+function ProviderAppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, dutyStatus, toggleDutyStatus, logout, isAuthenticated, isLoading } = useProviderAuth();
+
+  const { connected: realtimeConnected, revision } = useProviderRealtime();
 
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false);
   const [showSOSModal, setShowSOSModal] = useState(false);
   const [sosCountdown, setSosCountdown] = useState<number | null>(null);
   const [sosTransmitted, setSosTransmitted] = useState(false);
+  const [sosSession, setSosSession] = useState<{ id?: string; lat?: number; lng?: number } | null>(null);
+  const [sosError, setSosError] = useState<string | null>(null);
+  const [unreadCount, setUnreadCount] = useState<number | null>(null);
+
+  // Unread notification count — the real number from
+  // GET /api/app/notification/unread-count, refreshed whenever the backend pushes.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let cancelled = false;
+    providerApi
+      .getUnreadNotificationCount()
+      .then((count) => {
+        if (!cancelled) setUnreadCount(count);
+      })
+      .catch(() => {
+        if (!cancelled) setUnreadCount(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, revision.new_flash_alert, revision.new_broadcast, revision.lead_approved]);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -103,28 +127,72 @@ export default function ProviderAppLayout({ children }: { children: React.ReactN
   const therapistName = user?.fullName || user?.name || (user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : 'Provider');
   const axId = user?.axId || user?.therapistId || user?.uid || 'AX-IND-4892';
 
-  // SOS Emergency Trigger with 3-second abort countdown
+  // SOS Emergency Trigger with 3-second abort countdown.
   const triggerSOS = () => {
     setShowSOSModal(true);
     setSosTransmitted(false);
+    setSosError(null);
+    setSosSession(null);
     setSosCountdown(3);
   };
+
+  /**
+   * Fires POST /api/app/sos/start with real device coordinates — the same call
+   * `SosService.triggerSOS()` makes on mobile, so the alert lands in the same
+   * dispatch console. The modal only reports "transmitted" once the backend confirms.
+   */
+  const transmitSOS = useCallback(async () => {
+    const readPosition = () =>
+      new Promise<GeolocationPosition | null>((resolve) => {
+        if (typeof navigator === 'undefined' || !navigator.geolocation) return resolve(null);
+        navigator.geolocation.getCurrentPosition(
+          (pos) => resolve(pos),
+          () => resolve(null),
+          { enableHighAccuracy: true, timeout: 8000 }
+        );
+      });
+
+    const position = await readPosition();
+    const coords = position
+      ? {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+        }
+      : undefined;
+
+    try {
+      const res = await providerApi.startSOS(coords);
+      if (!res.success) {
+        setSosError(res.message || 'The dispatch centre rejected the alert. Call the emergency line.');
+        return;
+      }
+      setSosSession({ id: res.sosSessionId, lat: coords?.lat, lng: coords?.lng });
+      setSosTransmitted(true);
+      // Mirror the mobile flag so the admin console shows this provider in distress.
+      providerApi.setTherapistSOS(true).catch(() => {});
+    } catch (err: any) {
+      setSosError(err?.message || 'Could not reach the dispatch centre. Call the emergency line.');
+    }
+  }, []);
 
   useEffect(() => {
     if (sosCountdown === null) return;
     if (sosCountdown === 0) {
-      setSosTransmitted(true);
       setSosCountdown(null);
+      void transmitSOS();
       return;
     }
     const timer = setTimeout(() => setSosCountdown(sosCountdown - 1), 1000);
     return () => clearTimeout(timer);
-  }, [sosCountdown]);
+  }, [sosCountdown, transmitSOS]);
 
   const abortSOS = () => {
     setSosCountdown(null);
     setShowSOSModal(false);
     setSosTransmitted(false);
+    setSosError(null);
+    setSosSession(null);
   };
 
   if (isLoading || !isAuthenticated) {
@@ -280,17 +348,28 @@ export default function ProviderAppLayout({ children }: { children: React.ReactN
                     <Icon className="w-4 h-4" />
                     <span>{item.label}</span>
                   </div>
-                  {item.badge && (
-                    <span
-                      className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider ${
-                        isActive
-                          ? 'bg-white/20 text-white'
-                          : 'bg-primary/15 text-primary'
-                      }`}
-                    >
-                      {item.badge}
-                    </span>
-                  )}
+                  {(() => {
+                    // Notifications carries the live unread count from the backend;
+                    // the rest are static section labels.
+                    const badge =
+                      item.href === '/app/notifications'
+                        ? unreadCount && unreadCount > 0
+                          ? String(unreadCount)
+                          : null
+                        : item.badge;
+                    if (!badge) return null;
+                    return (
+                      <span
+                        className={`text-[9px] px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+                          isActive
+                            ? 'bg-white/20 text-white'
+                            : 'bg-primary/15 text-primary'
+                        }`}
+                      >
+                        {badge}
+                      </span>
+                    );
+                  })()}
                 </Link>
               );
             })}
@@ -428,12 +507,18 @@ export default function ProviderAppLayout({ children }: { children: React.ReactN
 
             <div>
               <h2 className="text-xl font-outfit font-black text-destructive">
-                {sosTransmitted ? 'EMERGENCY SOS TRANSMITTED' : 'EMERGENCY SOS TRIGGERED'}
+                {sosError
+                  ? 'EMERGENCY SOS FAILED'
+                  : sosTransmitted
+                    ? 'EMERGENCY SOS TRANSMITTED'
+                    : 'EMERGENCY SOS TRIGGERED'}
               </h2>
               <p className="text-xs text-muted-foreground mt-1">
-                {sosTransmitted
-                  ? 'Clinical Escalation Command Center notified. Live GPS broadcasting active.'
-                  : 'Dispatching emergency response to your live clinical location.'}
+                {sosError
+                  ? sosError
+                  : sosTransmitted
+                    ? 'Clinical Escalation Command Center notified. Live GPS broadcasting active.'
+                    : 'Dispatching emergency response to your live clinical location.'}
               </p>
             </div>
 
@@ -452,10 +537,16 @@ export default function ProviderAppLayout({ children }: { children: React.ReactN
               <div className="p-3 bg-destructive/10 rounded-2xl border border-destructive/30 text-xs font-bold text-destructive space-y-1">
                 <div className="flex items-center justify-center gap-1">
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>GPS Broadcasted: IC Colony, Borivali West</span>
+                  <span>
+                    {sosSession?.lat !== undefined && sosSession?.lng !== undefined
+                      ? `GPS broadcast: ${sosSession.lat.toFixed(5)}, ${sosSession.lng.toFixed(5)}`
+                      : 'Alert transmitted without GPS (location permission denied)'}
+                  </span>
                 </div>
                 <p className="text-[10px] font-normal text-muted-foreground">
-                  Clinical Director & Police escalation center alerted.
+                  {sosSession?.id
+                    ? `Dispatch session ${sosSession.id} — Clinical Director escalation alerted.`
+                    : 'Clinical Director escalation alerted.'}
                 </p>
               </div>
             )}
@@ -465,7 +556,7 @@ export default function ProviderAppLayout({ children }: { children: React.ReactN
                 onClick={abortSOS}
                 className="w-full h-11 rounded-2xl bg-muted hover:bg-muted/80 text-foreground font-outfit font-extrabold text-xs"
               >
-                {sosTransmitted ? 'Close Alert' : 'Abort SOS (Cancel)'}
+                {sosTransmitted || sosError ? 'Close Alert' : 'Abort SOS (Cancel)'}
               </Button>
             </div>
           </div>
@@ -475,5 +566,18 @@ export default function ProviderAppLayout({ children }: { children: React.ReactN
       {/* PWA Device Install Prompt */}
       <PwaInstallPrompt />
     </div>
+  );
+}
+
+/**
+ * Everything under `/app` runs inside the real-time provider, so the web app joins the
+ * same `therapist-<id>` socket room the Flutter app joins. Backend pushes (new leads,
+ * wallet credits, payments, SOS dispatch) reach both clients at the same moment.
+ */
+export default function ProviderAppLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <ProviderRealtimeProvider>
+      <ProviderAppShell>{children}</ProviderAppShell>
+    </ProviderRealtimeProvider>
   );
 }

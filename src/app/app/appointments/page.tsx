@@ -20,6 +20,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { useProviderAuth } from '@/services/provider-auth-context';
 import { providerApi } from '@/services/provider-api';
+import { useRealtimeEvent } from '@/services/provider-realtime';
 
 interface AppointmentItem {
   id: string;
@@ -43,6 +44,7 @@ export default function ProviderAppointmentsPage() {
   const { user } = useProviderAuth();
   const [appointments, setAppointments] = useState<AppointmentItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'Scheduled' | 'InProgress' | 'Completed'>('ALL');
   const [dateFilter, setDateFilter] = useState<'ALL' | 'Today' | 'Tomorrow'>('ALL');
   const [reschedulingApt, setReschedulingApt] = useState<AppointmentItem | null>(null);
@@ -78,15 +80,17 @@ export default function ProviderAppointmentsPage() {
             status,
             sessionNumber: item.sessionIndex || item.sessionNumber || 1,
             totalSessions: item.totalSessions || 1,
-            fee: item.fee || item.amount || item.therapistSessionAmount || 600,
+            fee: Number(item.fee ?? item.amount ?? item.therapistSessionAmount ?? item.perSessionPrice ?? 0) || 0,
           };
         });
         setAppointments(mapped);
       } else {
         setAppointments([]);
       }
-    } catch (_) {
-      setAppointments([]);
+      setLoadError(null);
+    } catch (err: any) {
+      // An empty list and an unreachable backend must not look the same.
+      setLoadError(err?.message || 'Could not load your appointments from the server.');
     } finally {
       setIsLoading(false);
     }
@@ -95,6 +99,11 @@ export default function ProviderAppointmentsPage() {
   useEffect(() => {
     loadAppointments();
   }, [user?._id]);
+
+  // A lead approved by admin becomes an appointment; a cleared payment changes its state.
+  useRealtimeEvent(['lead_approved', 'payment_success'], () => {
+    void loadAppointments();
+  });
 
   const filtered = appointments.filter((a) => {
     if (statusFilter !== 'ALL' && a.status !== statusFilter) return false;
@@ -123,6 +132,15 @@ export default function ProviderAppointmentsPage() {
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
+      {loadError && (
+        <div className="p-4 rounded-2xl text-xs font-bold flex items-center gap-2 bg-red-500/10 text-red-600 border border-red-500/30">
+          <span>{loadError}</span>
+          <button type="button" onClick={() => loadAppointments()} className="ml-auto underline">
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>

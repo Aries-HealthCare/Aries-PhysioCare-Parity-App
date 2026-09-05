@@ -60,85 +60,87 @@ export function ProviderAuthProvider({ children }: { children: React.ReactNode }
     }
   };
 
+  const routeAfterLogin = (userData: MobileExpertProfile) => {
+    setUser(userData);
+    setDutyStatus(!!userData.isTherapistActive);
+    localStorage.setItem('expert_user_data', JSON.stringify(userData));
+
+    const isPending =
+      userData.onboardingStatus === 'pending' ||
+      (userData.onboardingStep !== undefined && userData.onboardingStep < 4) ||
+      !userData.licenseNumber ||
+      !userData.city;
+
+    router.push(isPending ? '/onboarding' : '/app');
+  };
+
   const loginWithPhoneOtp = async (phone: string, otp: string): Promise<boolean> => {
     setIsLoading(true);
-    const res = await providerApi.verifyOTP(phone, otp);
-    setIsLoading(false);
-    if (res.success) {
+    try {
+      const res = await providerApi.verifyOTP(phone, otp);
+      if (!res.success) return false;
+
       const cleanPhone = phone.replace(/\D/g, '').slice(-10);
-      const userData: MobileExpertProfile = res.result || {
-        _id: 'exp_' + cleanPhone,
-        fullName: '',
-        phone: cleanPhone,
-        city: '',
-        onboardingStatus: 'pending',
-        onboardingStep: 0,
-        status: 'Active',
-        isTherapistActive: true,
-      };
-      setUser(userData);
-      setDutyStatus(!!userData.isTherapistActive);
-      localStorage.setItem('expert_user_data', JSON.stringify(userData));
 
-      const isPending =
-        userData.onboardingStatus === 'pending' ||
-        (userData.onboardingStep !== undefined && userData.onboardingStep < 4) ||
-        !userData.licenseNumber ||
-        !userData.city;
-
-      if (isPending) {
-        router.push('/onboarding');
-      } else {
-        router.push('/app');
+      // The OTP endpoint returns the expert document for an existing provider. For a
+      // number the backend has not onboarded yet it may not, so we ask for the record
+      // instead of minting one locally — a synthetic id matches nothing server-side and
+      // every screen would then read empty while looking signed in.
+      let userData = res.result;
+      if (!userData) {
+        const status = await providerApi.checkOnboardingStatus(cleanPhone).catch(() => null);
+        userData = status?.result;
       }
+      if (!userData) {
+        userData = {
+          _id: '',
+          phone: cleanPhone,
+          mobileNo: cleanPhone,
+          onboardingStatus: 'pending',
+          onboardingStep: 0,
+        } as MobileExpertProfile;
+      }
+
+      routeAfterLogin(userData);
       return true;
+    } finally {
+      setIsLoading(false);
     }
-    return false;
   };
 
   const loginWithEmail = async (email: string, pass: string): Promise<boolean> => {
     setIsLoading(true);
-    const res = await providerApi.loginFromEmail(email, pass);
-    setIsLoading(false);
-    if (res.success) {
-      const userData: MobileExpertProfile = res.result || {
-        _id: 'exp_' + Date.now(),
-        email,
-        fullName: 'Provider',
-        city: '',
-        onboardingStatus: 'pending',
-        onboardingStep: 0,
-        status: 'Active',
-        isTherapistActive: true,
-      };
-      setUser(userData);
-      setDutyStatus(!!userData.isTherapistActive);
-      localStorage.setItem('expert_user_data', JSON.stringify(userData));
+    try {
+      const res = await providerApi.loginFromEmail(email, pass);
+      // Without an expert document there is no session to render — report the failure
+      // rather than signing the user into an empty shell.
+      if (!res.success || !res.result) return false;
 
-      const isPending =
-        userData.onboardingStatus === 'pending' ||
-        (userData.onboardingStep !== undefined && userData.onboardingStep < 4) ||
-        !userData.licenseNumber ||
-        !userData.city;
-
-      if (isPending) {
-        router.push('/onboarding');
-      } else {
-        router.push('/app');
-      }
+      routeAfterLogin(res.result);
       return true;
+    } finally {
+      setIsLoading(false);
     }
-    return false;
   };
 
+  /**
+   * Duty toggle. Mirrors `DashboardNotifier.toggleAvailability` — the switch reverts if
+   * the backend rejects the change, so the UI never claims a duty state the dispatcher
+   * does not have.
+   */
   const toggleDutyStatus = async () => {
+    if (!user?._id) return;
     const next = !dutyStatus;
     setDutyStatus(next);
-    if (user?._id) {
-      await providerApi.setTherapistActive(user._id, next);
+    try {
+      const res = await providerApi.setTherapistActive(user._id, next);
+      if (!res.success) throw new Error(res.message || 'Duty status update rejected');
       const updated = { ...user, isTherapistActive: next };
       setUser(updated);
       localStorage.setItem('expert_user_data', JSON.stringify(updated));
+    } catch (err) {
+      console.warn('[auth] duty toggle failed, reverting:', err);
+      setDutyStatus(!next);
     }
   };
 

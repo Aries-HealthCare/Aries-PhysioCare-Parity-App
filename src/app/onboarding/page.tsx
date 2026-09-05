@@ -1016,15 +1016,18 @@ export default function ProviderOnboardingPage() {
           return;
         }
 
-        await providerApi.submitForReview(effectiveUserId);
+        const reviewRes = await providerApi.submitForReview(effectiveUserId);
 
-        updateUserData({
-          onboardingStep: 5,
-          onboardingStatus: 'approved',
-          status: 'Active',
-          isProfileActive: true,
-          isTherapistActive: true,
-        });
+        // `submitForReview` puts the profile in the clinical-governance queue with status
+        // "Pending" — it does not approve it. Reflect what the backend returned rather
+        // than marking the account approved and active locally.
+        updateUserData(
+          reviewRes.result || {
+            onboardingStep: 5,
+            onboardingStatus: 'UNDER_REVIEW',
+            status: 'UNDER_REVIEW',
+          }
+        );
 
         setIsSubmittedSuccess(true);
         if (typeof window !== 'undefined') {
