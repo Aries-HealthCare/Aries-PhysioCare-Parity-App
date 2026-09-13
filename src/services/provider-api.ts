@@ -1278,22 +1278,103 @@ class ProviderApiService {
     };
   }
 
-  /** POST /api/app/patient/createReferPatient — mirrors `ApiService.createReferPatient`. */
+  /** POST /api/app/patient/createReferPatient — mirrors `ApiService.createReferPatient` with full structured payload support. */
   public async createReferPatient(payload: {
-    therapist: string;
-    patientName: string;
-    patientMobile: string;
-    patientAddress?: string;
+    firstName?: string;
+    lastName?: string;
+    patientName?: string;
+    phone?: string;
+    patientMobile?: string;
+    gender?: string;
+    age?: number | string;
+    medicalConditions?: string[];
     patientCondition?: string;
+    referPatientAppointmentTime?: string;
+    referredBy?: string;
+    therapist?: string;
+    address?: any;
+    patientAddress?: string;
     city?: string;
+    packageId?: string;
+    packageName?: string;
+    sessionPrice?: number;
+    patientConfirmed?: boolean;
     [key: string]: any;
   }): Promise<{ success: boolean; result?: any; message?: string }> {
-    const res = await apiPost('/api/app/patient/createReferPatient', payload);
+    const fName = payload.firstName || (payload.patientName ? payload.patientName.split(' ')[0] : 'Patient');
+    const lName = payload.lastName || (payload.patientName ? payload.patientName.split(' ').slice(1).join(' ') : '');
+    const phoneNum = payload.phone || payload.patientMobile || '';
+    const conditions = payload.medicalConditions || (payload.patientCondition ? [payload.patientCondition] : []);
+    const refBy = payload.referredBy || payload.therapist || this.getCurrentUserId();
+
+    let addrObj = typeof payload.address === 'object' && payload.address !== null ? payload.address : {};
+    if (typeof payload.patientAddress === 'string' && (!addrObj || !Object.keys(addrObj).length)) {
+      addrObj = { street: payload.patientAddress, city: payload.city || '' };
+    }
+
+    const body: Record<string, any> = {
+      firstName: fName,
+      lastName: lName,
+      phone: phoneNum,
+      gender: payload.gender || 'Other',
+      age: Number(payload.age) || 30,
+      medicalConditions: conditions,
+      referPatientAppointmentTime: payload.referPatientAppointmentTime || new Date().toISOString(),
+      referredBy: refBy,
+      therapist: refBy,
+      address: addrObj,
+      city: payload.city || addrObj.city || '',
+      patientName: `${fName} ${lName}`.trim(),
+      patientMobile: phoneNum,
+      patientAddress: typeof payload.patientAddress === 'string' ? payload.patientAddress : (addrObj.street || addrObj.address || ''),
+      patientCondition: Array.isArray(conditions) ? conditions.join(', ') : String(conditions || ''),
+    };
+    if (payload.packageId) body.packageId = payload.packageId;
+    if (payload.packageName) body.packageName = payload.packageName;
+    if (payload.sessionPrice) body.sessionPrice = payload.sessionPrice;
+    if (payload.patientConfirmed !== undefined) body.patientConfirmed = payload.patientConfirmed;
+
+    const res = await apiPost('/api/app/patient/createReferPatient', body);
     return {
       success: res.success !== false,
       result: unwrap(res),
       message: res.message || 'Patient referred successfully',
     };
+  }
+
+  /** GET /api/admin/finance/pricing/resolve — mirrors `ApiService.resolveSessionPrice`. */
+  public async resolveSessionPrice(params: {
+    city: string;
+    pincode?: string;
+    area?: string;
+    country?: string;
+  }): Promise<{ price: number; hierarchyLevel: string }> {
+    const q = new URLSearchParams();
+    q.set('city', params.city);
+    q.set('country', params.country || 'India');
+    if (params.pincode) q.set('pincode', params.pincode);
+    if (params.area) q.set('area', params.area);
+    try {
+      const res = await apiGet(`/api/admin/finance/pricing/resolve?${q.toString()}`);
+      return {
+        price: Number(res?.price ?? res?.result?.price ?? 800),
+        hierarchyLevel: res?.hierarchyLevel ?? res?.result?.hierarchyLevel ?? 'city',
+      };
+    } catch {
+      return { price: 800, hierarchyLevel: 'default' };
+    }
+  }
+
+  /** GET /api/admin/packages — mirrors `ApiService.fetchPackages`. */
+  public async fetchPackages(city?: string): Promise<any[]> {
+    const q = new URLSearchParams({ ownerType: 'admin', limit: '50', isActive: 'true' });
+    if (city) q.set('city', city);
+    try {
+      const res = await apiGet(`/api/admin/packages?${q.toString()}`);
+      return unwrapList(res, 'packages');
+    } catch {
+      return [];
+    }
   }
 
   /** POST /api/app/expert/createReferTherapist — mirrors `ApiService.createReferTherapist`. */

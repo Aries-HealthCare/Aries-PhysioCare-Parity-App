@@ -62,12 +62,33 @@ export default function ProviderReferPatientPage() {
   const [landmark, setLandmark] = useState('');
   const [area, setArea] = useState('');
   const [city, setCity] = useState(user?.city || '');
-  const [pincode, setPincode] = useState('400092');
-  const [condition, setCondition] = useState('Post-TKR Knee Joint Mobilization');
-  const [selectedPackage, setSelectedPackage] = useState('10-Session Comprehensive Recovery Pack (₹7,800)');
+  const [pincode, setPincode] = useState('');
+  const [condition, setCondition] = useState('');
+  const [customCondition, setCustomCondition] = useState('');
+  const [availablePackages, setAvailablePackages] = useState<any[]>([]);
+  const [selectedPackageId, setSelectedPackageId] = useState('');
+  const [selectedPackageName, setSelectedPackageName] = useState('');
+  const [sessionPrice, setSessionPrice] = useState<number>(800);
   const [preferredDate, setPreferredDate] = useState('Tomorrow');
   const [preferredTime, setPreferredTime] = useState('10:00 AM - 11:00 AM');
   const [patientConfirmed, setPatientConfirmed] = useState(true);
+
+  // Fetch dynamic packages and price resolution
+  useEffect(() => {
+    providerApi.fetchPackages(city || user?.city).then((pkgs) => {
+      if (Array.isArray(pkgs) && pkgs.length > 0) {
+        setAvailablePackages(pkgs);
+        setSelectedPackageId(pkgs[0]._id || pkgs[0].id || '');
+        setSelectedPackageName(pkgs[0].name || pkgs[0].title || '');
+      }
+    }).catch(() => {});
+
+    if (city || user?.city) {
+      providerApi.resolveSessionPrice({ city: city || user?.city || 'Mumbai' }).then((res) => {
+        if (res.price) setSessionPrice(res.price);
+      }).catch(() => {});
+    }
+  }, [city, user?.city]);
 
   // Load real referred patients from backend
   const loadReferrals = async () => {
@@ -77,11 +98,11 @@ export default function ProviderReferPatientPage() {
       if (data.referPatients && data.referPatients.length > 0) {
         const mapped: ReferredPatientItem[] = data.referPatients.map((p: any, idx: number) => ({
           id: p._id || p.id || 'ref_' + idx,
-          patientName: p.patientName || p.name || 'Patient',
+          patientName: p.patientName || `${p.firstName || ''} ${p.lastName || ''}`.trim() || p.name || 'Patient',
           patientPhone: p.patientMobile || p.phone || '',
-          condition: p.patientCondition || p.condition || 'General Physiotherapy',
+          condition: Array.isArray(p.medicalConditions) ? p.medicalConditions.join(', ') : (p.patientCondition || p.condition || 'General Physiotherapy'),
           city: p.city || user?.city || '',
-          area: p.patientAddress || p.area || '',
+          area: typeof p.address === 'object' ? `${p.address?.area || p.address?.street || ''}` : (p.patientAddress || p.area || ''),
           dateReferred: p.createdAt ? new Date(p.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Recent',
           visitsDone: p.visitsDone || 0,
           totalVisits: p.totalVisits || 10,
@@ -94,7 +115,6 @@ export default function ProviderReferPatientPage() {
       }
       setLoadError(null);
     } catch (err: any) {
-      // An unreachable backend must not be shown as "no referrals yet".
       setLoadError(err?.message || 'Could not load your referrals from the server.');
     } finally {
       setIsLoading(false);
@@ -113,7 +133,11 @@ export default function ProviderReferPatientPage() {
   const handleSubmitReferral = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!firstName.trim() || !phone.trim()) {
-      alert('Please fill patient name and mobile number.');
+      alert('Please fill patient first name and mobile number.');
+      return;
+    }
+    if (!address.trim()) {
+      alert('Please fill patient residential address for doorstep care.');
       return;
     }
     if (!patientConfirmed) {
@@ -123,13 +147,36 @@ export default function ProviderReferPatientPage() {
 
     setIsSubmitting(true);
     const fullName = `${firstName.trim()} ${lastName.trim()}`.trim();
+    const finalCondition = condition === 'Other' ? (customCondition.trim() || 'General Physical Therapy') : (condition || 'General Physical Therapy');
+
+    const addressObj = {
+      street: address.trim(),
+      landmark: landmark.trim(),
+      area: area.trim(),
+      city: (city || user?.city || '').trim(),
+      pinCode: pincode.trim(),
+    };
+
     const payload = {
-      therapist: user?._id || user?.id || 'therapist_' + Date.now(),
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      phone: phone.trim(),
+      gender,
+      age: Number(age) || 45,
+      medicalConditions: [finalCondition],
+      referPatientAppointmentTime: `${preferredDate} ${preferredTime}`,
+      referredBy: user?._id || user?.id || '',
+      therapist: user?._id || user?.id || '',
+      address: addressObj,
       patientName: fullName,
       patientMobile: phone.trim(),
       patientAddress: `${address} ${landmark} ${area} ${pincode}`.trim(),
-      patientCondition: condition,
-      city: city || user?.city || '',
+      patientCondition: finalCondition,
+      city: (city || user?.city || '').trim(),
+      packageId: selectedPackageId || undefined,
+      packageName: selectedPackageName || undefined,
+      sessionPrice: sessionPrice,
+      patientConfirmed,
     };
 
     const res = await providerApi.createReferPatient(payload);
@@ -138,16 +185,19 @@ export default function ProviderReferPatientPage() {
     if (res.success !== false) {
       setShowReferForm(false);
       setSuccessFeedback(`🎉 Patient ${fullName} referred successfully! You will earn 10% commission on every session completed.`);
-      // Reset form
       setFirstName('');
       setLastName('');
       setPhone('');
       setAge('');
       setAddress('');
       setLandmark('');
+      setArea('');
+      setPincode('');
+      setCondition('');
+      setCustomCondition('');
       loadReferrals();
     } else {
-      alert(res.message || 'Failed to submit patient referral. Please try again.');
+      alert(res.message || 'Failed to submit referral. Please try again.');
     }
   };
 
@@ -443,30 +493,63 @@ export default function ProviderReferPatientPage() {
                   value={condition}
                   onChange={(e) => setCondition(e.target.value)}
                   className="w-full h-10 px-3 bg-background border border-input rounded-xl text-xs font-bold"
+                  required
                 >
+                  <option value="">Select Condition...</option>
                   <option value="Post-TKR Knee Joint Mobilization">Post-TKR Knee Joint Mobilization & Rehab</option>
                   <option value="Stroke Hemiplegia Neuro Gait Training">Stroke Hemiplegia Neuro Gait Training</option>
                   <option value="Lumbar Canal Stenosis & Sciatica">Lumbar Canal Stenosis & Sciatica Relief</option>
                   <option value="Cervical Spondylosis & Posture Rehab">Cervical Spondylosis & Posture Rehab</option>
                   <option value="Frozen Shoulder Capsular Stretching">Frozen Shoulder (Adhesive Capsulitis)</option>
-                  <option value="Parkinsons Balance & Fall Prevention">Parkinson's Disease Balance & Coordination</option>
+                  <option value="Parkinsons Balance & Fall Prevention">Parkinson&apos;s Disease Balance & Coordination</option>
                   <option value="Sports ACL / Meniscus Recovery">Sports ACL / Meniscus Post-Op Recovery</option>
                   <option value="Pediatric Cerebral Palsy Milestones">Pediatric Cerebral Palsy Milestones</option>
+                  <option value="Other">Other / Enter Custom Diagnosis</option>
                 </select>
+                {condition === 'Other' && (
+                  <Input
+                    placeholder="Enter custom condition or clinical diagnosis"
+                    value={customCondition}
+                    onChange={(e) => setCustomCondition(e.target.value)}
+                    className="h-10 rounded-xl mt-2"
+                    required
+                  />
+                )}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label className="font-bold">Recommended Treatment Package</Label>
                   <select
-                    value={selectedPackage}
-                    onChange={(e) => setSelectedPackage(e.target.value)}
+                    value={selectedPackageId}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      setSelectedPackageId(id);
+                      const found = availablePackages.find((p) => (p._id || p.id) === id);
+                      if (found) {
+                        setSelectedPackageName(found.name || found.title || '');
+                      }
+                    }}
                     className="w-full h-10 px-3 bg-background border border-input rounded-xl text-xs font-bold"
                   >
-                    <option value="10-Session Comprehensive Recovery Pack (₹7,800)">10-Session Recovery Pack (₹7,800) • Earn ₹780</option>
-                    <option value="15-Session Advanced Neuro Rehab Pack (₹11,700)">15-Session Neuro Pack (₹11,700) • Earn ₹1,170</option>
-                    <option value="5-Session Acute Pain Relief Pack (₹3,900)">5-Session Acute Pack (₹3,900) • Earn ₹390</option>
-                    <option value="Single Assessment & First Visit (₹800)">Single Session (₹800) • Earn ₹78</option>
+                    {availablePackages.length > 0 ? (
+                      availablePackages.map((pkg) => {
+                        const pkgPrice = Number(pkg.price || pkg.totalAmount || pkg.discountedPrice || 0);
+                        const estCommission = Math.floor(pkgPrice * 0.98 * 0.1);
+                        return (
+                          <option key={pkg._id || pkg.id} value={pkg._id || pkg.id}>
+                            {pkg.name || pkg.title} (₹{pkgPrice.toLocaleString('en-IN')}) • Earn ₹{estCommission}
+                          </option>
+                        );
+                      })
+                    ) : (
+                      <>
+                        <option value="pack_10">10-Session Recovery Pack (₹7,800) • Earn ₹764</option>
+                        <option value="pack_15">15-Session Neuro Pack (₹11,700) • Earn ₹1,146</option>
+                        <option value="pack_5">5-Session Acute Pack (₹3,900) • Earn ₹382</option>
+                        <option value="pack_single">Single Session (₹{sessionPrice}) • Earn ₹{Math.floor(sessionPrice * 0.98 * 0.1)}</option>
+                      </>
+                    )}
                   </select>
                 </div>
 

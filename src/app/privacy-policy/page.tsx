@@ -248,7 +248,7 @@ export default function PrivacyPolicyPage() {
                             {/* Introduction */}
                             <div className="mb-8 p-6 rounded-2xl bg-secondary/20 border">
                                 <p className="text-muted-foreground leading-relaxed">
-                                    This Privacy Policy applies to <strong>{ORG_NAME}</strong> ('Company', 'we', 'us', or 'our'), operating the <strong>{BRAND_NAME}</strong> brand and website at ariesphysiocare.com. By using our services, you agree to the collection and use of information as described in this policy. If you do not agree, please discontinue use of our services.
+                                    This Privacy Policy applies to <strong>{ORG_NAME}</strong> (&apos;Company&apos;, &apos;we&apos;, &apos;us&apos;, or &apos;our&apos;), operating the <strong>{BRAND_NAME}</strong> brand and website at ariesphysiocare.com. By using our services, you agree to the collection and use of information as described in this policy. If you do not agree, please discontinue use of our services.
                                 </p>
                             </div>
 

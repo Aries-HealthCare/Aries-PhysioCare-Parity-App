@@ -486,7 +486,7 @@ export function LoginPortal() {
                           disabled={isLoading}
                           className="text-teal-400 hover:text-teal-300 font-bold underline underline-offset-4"
                         >
-                          Didn't receive code? Resend OTP
+                          Didn&apos;t receive code? Resend OTP
                         </button>
                       )}
                     </div>

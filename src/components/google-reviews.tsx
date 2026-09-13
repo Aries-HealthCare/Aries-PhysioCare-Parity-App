@@ -111,7 +111,7 @@ export default function GoogleReviews({ locationName, className }: GoogleReviews
                     
                     <CardContent className="px-8 pb-10 pt-2 flex-grow relative z-10">
                       <p className="text-sm md:text-base text-muted-foreground italic leading-relaxed font-medium">
-                        "{review.comment}"
+                        &quot;{review.comment}&quot;
                       </p>
                       {review.isVerified && (
                         <div className="mt-6 flex items-center gap-2 text-[9px] font-black text-primary uppercase tracking-[0.2em]">

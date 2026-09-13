@@ -181,7 +181,7 @@ export default function TermsOfServicePage() {
                                 Terms of Service
                             </h1>
                             <p className="text-white/80 text-lg leading-relaxed">
-                                Please read these Terms of Service carefully before using Aries PhysioCare's website or services. These terms govern your use of our platform and healthcare services.
+                                Please read these Terms of Service carefully before using Aries PhysioCare&apos;s website or services. These terms govern your use of our platform and healthcare services.
                             </p>
                         </div>
                     </div>
@@ -214,7 +214,7 @@ export default function TermsOfServicePage() {
                             {/* Introduction */}
                             <div className="mb-8 p-6 rounded-2xl bg-secondary/20 border">
                                 <p className="text-muted-foreground leading-relaxed">
-                                    These Terms of Service ('Terms') constitute a legally binding agreement between you and <strong>{ORG_NAME}</strong> ('Company', 'we', 'us', or 'our'), operating under the <strong>{BRAND_NAME}</strong> brand. By accessing our website or using our services, you agree to be bound by these Terms.
+                                    These Terms of Service (&apos;Terms&apos;) constitute a legally binding agreement between you and <strong>{ORG_NAME}</strong> (&apos;Company&apos;, &apos;we&apos;, &apos;us&apos;, or &apos;our&apos;), operating under the <strong>{BRAND_NAME}</strong> brand. By accessing our website or using our services, you agree to be bound by these Terms.
                                 </p>
                             </div>
 
@@ -258,7 +258,7 @@ export default function TermsOfServicePage() {
                             <div className="mt-12 p-8 rounded-2xl bg-primary/5 border border-primary/20">
                                 <h2 className="font-headline text-2xl font-bold mb-2">Have Questions?</h2>
                                 <p className="text-muted-foreground mb-6">
-                                    If you have questions or concerns about these Terms, we're happy to help.
+                                    If you have questions or concerns about these Terms, we&apos;re happy to help.
                                 </p>
                                 <div className="space-y-3">
                                     <div className="flex items-center gap-3 text-sm">

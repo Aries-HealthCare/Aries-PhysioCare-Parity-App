@@ -431,7 +431,7 @@ export default function ProviderDashboardPage() {
         {/* Left: Today's Appointments */}
         <div className="lg:col-span-2 space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-base font-extrabold tracking-tight">Today's Treatment Itinerary</h3>
+            <h3 className="text-base font-extrabold tracking-tight">Today&apos;s Treatment Itinerary</h3>
             <Link href="/app/appointments" className="text-xs font-bold text-primary hover:underline flex items-center gap-1" prefetch={false}>
               <span>Full Schedule</span>
               <ChevronRight className="w-3.5 h-3.5" />

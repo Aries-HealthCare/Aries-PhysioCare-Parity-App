@@ -237,7 +237,7 @@ export default function TherapistProfileTemplate({ therapist }: TherapistProfile
                                                 <Star key={i} className="w-3.5 h-3.5 fill-yellow-400 text-yellow-400" />
                                             ))}
                                         </div>
-                                        <p className="text-muted-foreground leading-relaxed">"{f.comment}"</p>
+                                        <p className="text-muted-foreground leading-relaxed">&quot;{f.comment}&quot;</p>
                                         <div className="flex items-center gap-2 pt-2">
                                             <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-[10px] font-bold not-italic">
                                                 {f.user.charAt(0)}

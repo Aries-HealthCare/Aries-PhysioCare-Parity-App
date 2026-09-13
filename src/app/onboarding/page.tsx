@@ -1746,10 +1746,10 @@ export default function ProviderOnboardingPage() {
                         <div className="flex items-center justify-between">
                           <Label className="text-xs text-slate-300 flex items-center gap-1.5 font-bold">
                             <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                            Postgraduate / Master's Clinical Specialization (Select One) *
+                            Postgraduate / Master&apos;s Clinical Specialization (Select One) *
                           </Label>
                           <span className="text-[10px] font-mono text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded-full border border-amber-400/20">
-                            Master's Required
+                            Master&apos;s Required
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-400">
@@ -1798,7 +1798,7 @@ export default function ProviderOnboardingPage() {
                           </span>
                         </div>
                         <p className="text-[11px] text-slate-400 leading-relaxed">
-                          Bachelor's degree graduates (e.g. BPT, BOT, BSc Nursing) practice comprehensive general care. Sub-specialization tracks are activated automatically for Post-graduate / Master's degree (MPT, MOT, MSc, PhD) holders.
+                          Bachelor&apos;s degree graduates (e.g. BPT, BOT, BSc Nursing) practice comprehensive general care. Sub-specialization tracks are activated automatically for Post-graduate / Master&apos;s degree (MPT, MOT, MSc, PhD) holders.
                         </p>
                       </div>
                     </div>

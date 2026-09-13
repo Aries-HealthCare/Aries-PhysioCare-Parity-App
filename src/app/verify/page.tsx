@@ -215,7 +215,7 @@ function VerifyContent() {
             </div>
 
             <div className="flex items-center justify-between text-xs pt-1">
-              <span className="text-muted-foreground">Didn't receive SMS?</span>
+              <span className="text-muted-foreground">Didn&apos;t receive SMS?</span>
               {timer > 0 ? (
                 <span className="text-muted-foreground font-mono">Resend in {timer}s</span>
               ) : (

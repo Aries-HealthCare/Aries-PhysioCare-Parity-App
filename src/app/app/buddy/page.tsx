@@ -367,7 +367,7 @@ export default function ProviderAIBuddyPage() {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-xs font-bold text-primary">
                 <Sparkles className="w-4 h-4 animate-spin" />
-                <span>Today's Clinical Insight & Focus</span>
+                <span>Today&apos;s Clinical Insight & Focus</span>
               </div>
               <span className="text-[10px] font-mono text-muted-foreground bg-card/60 px-2 py-0.5 rounded-full border border-border/60">
                 Evidence Level 1A
@@ -396,7 +396,7 @@ export default function ProviderAIBuddyPage() {
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-outfit font-extrabold text-foreground">Clinician Energy & State Check-in</h3>
-                <p className="text-[11px] text-muted-foreground">How are you feeling heading into today's patient sessions?</p>
+                <p className="text-[11px] text-muted-foreground">How are you feeling heading into today&apos;s patient sessions?</p>
               </div>
             </div>
 
