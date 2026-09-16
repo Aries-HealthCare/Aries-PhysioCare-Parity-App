@@ -27,8 +27,21 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { CountrySelector, COUNTRIES_CONFIG } from '@/components/country-selector';
-import { motion, AnimatePresence } from 'framer-motion';
 import { Login3DBackground } from './login-3d-background';
+
+const AnimatePresence = ({ children }: { children: React.ReactNode; mode?: string; custom?: unknown }) => <>{children}</>;
+const motion = {
+  div: ({
+    children,
+    className,
+  }: React.HTMLAttributes<HTMLDivElement> & {
+    initial?: unknown;
+    animate?: unknown;
+    exit?: unknown;
+    transition?: unknown;
+    custom?: unknown;
+  }) => <div className={className}>{children}</div>,
+};
 
 type ScreenMode = 'mobile' | 'email' | 'otp' | 'emailOtp' | 'reset' | 'resetOtp';
 
