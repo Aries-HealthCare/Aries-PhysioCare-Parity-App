@@ -140,6 +140,7 @@ export default function ProviderDashboardPage() {
       sub: 'Live earnings',
       icon: <TrendingUp className="w-4 h-4" />,
       color: 'text-emerald-500 bg-emerald-500/10',
+      href: '/app/earnings',
     },
     {
       label: "Today's Visits",
@@ -147,6 +148,7 @@ export default function ProviderDashboardPage() {
       sub: `${stats.detailedVisits?.today?.completed ?? 0} completed`,
       icon: <CalendarCheck className="w-4 h-4" />,
       color: 'text-primary bg-primary/10',
+      href: '/app/dashboard/visits',
     },
     {
       label: 'Patients Attended',
@@ -154,6 +156,7 @@ export default function ProviderDashboardPage() {
       sub: 'Unique patients',
       icon: <Users className="w-4 h-4" />,
       color: 'text-purple-500 bg-purple-500/10',
+      href: '/app/dashboard/patients',
     },
     {
       label: 'Lead Broadcasts',
@@ -161,6 +164,7 @@ export default function ProviderDashboardPage() {
       sub: stats.leadConversionRate ? `${stats.leadConversionRate} conversion` : 'Nearby matches',
       icon: <Radio className="w-4 h-4 animate-pulse" />,
       color: 'text-cyan-500 bg-cyan-500/10',
+      href: '/app/leads',
     },
     {
       label: 'Missed Leads',
@@ -168,6 +172,7 @@ export default function ProviderDashboardPage() {
       sub: 'Last 7 days',
       icon: <AlertTriangle className="w-4 h-4" />,
       color: 'text-red-500 bg-red-500/10',
+      href: '/app/dashboard/missed',
     },
     {
       label: 'Wallet Balance',
@@ -183,6 +188,7 @@ export default function ProviderDashboardPage() {
       sub: 'Total acquired',
       icon: <Zap className="w-4 h-4" />,
       color: 'text-amber-500 bg-amber-500/10',
+      href: '/app/dashboard/leads-taken',
     },
     {
       label: 'Monthly Target',
@@ -190,6 +196,7 @@ export default function ProviderDashboardPage() {
       sub: `₹${monthlyAchieved.toLocaleString('en-IN')} / ₹${monthlyTarget.toLocaleString('en-IN')}`,
       icon: <Target className="w-4 h-4" />,
       color: 'text-indigo-500 bg-indigo-500/10',
+      href: '/app/dashboard/targets',
     },
   ];
 

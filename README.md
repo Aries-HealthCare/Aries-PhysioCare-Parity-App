@@ -1,48 +1,30 @@
 # Aries-PhysioCare-Parity-App
 
-Clinical Provider Parity Web Application for **Aries PhysioCare** (`app.ariesphysiocare.com`).
+Web/PWA counterpart of **AriesXpertV2** for verified field experts (`app.ariesphysiocare.com`).
 
-## Architecture & Features
+Same identity, same `ariesxpert-backend`, same Mongo documents as the Flutter app. Not a patient portal and not the HQ admin console.
 
-- **Subdomain**: Dedicated PWA running on `app.ariesphysiocare.com`.
-- **23 Parity Modules**:
-  - `Appointments` (`/app/appointments`)
-  - `Attendance & Check-in` (`/app/attendance`)
-  - `Availability & Calendar` (`/app/availability`)
-  - `Buddy System` (`/app/buddy`)
-  - `Document Vault & KYC` (`/app/documents`)
-  - `Earnings Breakdown` (`/app/earnings`)
-  - `Gaming & Challenges` (`/app/gaming`)
-  - `Invoices & Billing` (`/app/invoices`)
-  - `Live Patient Broadcast Leads` (`/app/leads`)
-  - `Clinical Notifications` (`/app/notifications`)
-  - `Patients Registry` (`/app/patients`)
-  - `Provider Profile & AI Studio` (`/app/profile`)
-  - `Quality & Audit Metrics` (`/app/quality`)
-  - `Refer a Patient` (`/app/refer-patient`)
-  - `Referral Tracker` (`/app/referrals`)
-  - `Rewards & Milestones` (`/app/rewards`)
-  - `Account Settings` (`/app/settings`)
-  - `Emergency SOS Dispatch` (`/app/sos`)
-  - `Clinical Helpdesk & Support` (`/app/support`)
-  - `Telehealth Video Consults` (`/app/telehealth`)
-  - `Clinical Training Modules` (`/app/training`)
-  - `Field Visit Execution & Geo-tracking` (`/app/visits`)
-  - `IMPS Payout Wallet` (`/app/wallet`)
-- **Authentication & Multi-Country Onboarding**:
-  - Phone OTP / Email Login (`/login`)
-  - 5-Stage Mobile Parity Onboarding (`/onboarding`) with State Council verification and IMPS banking.
+## Docs
 
-## Development
+- [Parity architecture](docs/PARITY_ARCHITECTURE.md)
+- [Feature matrix](docs/ARIESXPERT_PARITY_MATRIX.md)
+- [API map](docs/API_PARITY_MAP.md)
+- [Domain model](docs/DOMAIN_MODEL.md)
+- [User journeys](docs/USER_JOURNEYS.md)
+- [Integrations](docs/INTEGRATIONS.md)
+- [Mobile sync rules](docs/MOBILE_PARITY_SYNC.md)
+- [Final report](docs/FINAL_PARITY_REPORT.md)
+
+## Run
 
 ```bash
 npm install
+cp .env.example .env.local
 npm run dev
 ```
 
-## Production Build
-
 ```bash
+npm test
 npm run typecheck
 npm run build
 ```

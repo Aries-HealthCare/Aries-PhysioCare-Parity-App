@@ -2332,6 +2332,147 @@ class ProviderApiService {
     };
   }
 
+  public async autoLogin(payload: { email?: string; phone?: string }): Promise<{
+    success: boolean;
+    token?: string;
+    result?: MobileExpertProfile;
+    message?: string;
+  }> {
+    const res = await apiPost('/api/app/expert/autoLogin', payload);
+    const token = (res as any).accessToken || (res as any).token || (res as any).result?.token;
+    if (token) this.saveToken(token);
+    const expert = (res as any).expert || (res as any).result?.expert || (res as any).result;
+    return {
+      success: res.success !== false && !!expert,
+      token,
+      result: expert ? this.normalizeExpertProfile(expert) : undefined,
+      message: res.message,
+    };
+  }
+
+  public async sendEmailOTP(email: string): Promise<{ success: boolean; message?: string }> {
+    const res = await apiPost('/api/app/expert/sendEmailOTP', { email: email.toLowerCase().trim() });
+    return { success: res.success !== false, message: res.message };
+  }
+
+  public async verifyEmailOTP(email: string, otp: string): Promise<{
+    success: boolean;
+    token?: string;
+    result?: MobileExpertProfile;
+    message?: string;
+  }> {
+    const res = await apiPost('/api/app/expert/verifyEmailOTP', { email: email.toLowerCase().trim(), otp });
+    const token = (res as any).accessToken || (res as any).token || (res as any).result?.token;
+    if (token) this.saveToken(token);
+    const expert = (res as any).expert || (res as any).result?.expert || (res as any).result;
+    return {
+      success: res.success !== false,
+      token,
+      result: expert?._id ? this.normalizeExpertProfile(expert) : undefined,
+      message: res.message,
+    };
+  }
+
+  public async requestEmailVerification(email: string): Promise<{ success: boolean; message?: string }> {
+    const res = await apiPost('/api/app/expert/requestEmailVerification', { email: email.toLowerCase().trim() });
+    return { success: res.success !== false, message: res.message };
+  }
+
+  public async checkEmailVerificationStatus(email: string): Promise<any> {
+    const res = await apiGet(
+      `/api/app/expert/checkEmailVerificationStatus?email=${encodeURIComponent(email.toLowerCase().trim())}`
+    );
+    return unwrap(res);
+  }
+
+  public async forgotPassword(email: string): Promise<{ success: boolean; message?: string }> {
+    const res = await apiPost('/api/app/expert/forgotPassword', { email: email.toLowerCase().trim() });
+    return { success: res.success !== false, message: res.message };
+  }
+
+  public async sendPasswordResetOTP(email: string): Promise<{ success: boolean; message?: string }> {
+    const res = await apiPost('/api/app/expert/sendPasswordResetOTP', { email: email.toLowerCase().trim() });
+    return { success: res.success !== false, message: res.message };
+  }
+
+  public async verifyPasswordResetOTP(email: string, otp: string): Promise<{
+    success: boolean;
+    resetToken?: string;
+    message?: string;
+  }> {
+    const res = await apiPost('/api/app/expert/verifyPasswordResetOTP', {
+      email: email.toLowerCase().trim(),
+      otp,
+    });
+    return {
+      success: res.success !== false,
+      resetToken: (res as any).resetToken || (res as any).token,
+      message: res.message,
+    };
+  }
+
+  public async resetPassword(payload: { token: string; newPassword: string }): Promise<{
+    success: boolean;
+    message?: string;
+  }> {
+    const res = await apiPost('/api/app/expert/resetPassword', payload);
+    return { success: res.success !== false, message: res.message };
+  }
+
+  public async updateOnboardingTour(payload: Record<string, any>): Promise<{ success: boolean }> {
+    const res = await apiPost('/api/app/expert/updateOnboardingTour', payload);
+    return { success: res.success !== false };
+  }
+
+  public async aiConsult(prompt: string, context?: Record<string, any>): Promise<any> {
+    const res = await apiPost('/api/app/ai/consult', { prompt, ...context });
+    return unwrap(res);
+  }
+
+  public async getChats(): Promise<any[]> {
+    const res = await apiGet('/api/v1/chats');
+    return unwrapList(res, 'chats', 'items');
+  }
+
+  public async createChat(payload: Record<string, any>): Promise<any> {
+    const res = await apiPost('/api/v1/chats', payload);
+    return unwrap(res);
+  }
+
+  public async getChatMessages(chatId: string): Promise<any[]> {
+    const res = await apiGet(`/api/v1/chats/${chatId}/messages?limit=100`);
+    return unwrapList(res, 'messages', 'items');
+  }
+
+  public async sendChatMessage(chatId: string, text: string): Promise<any> {
+    const res = await apiPost(`/api/v1/chats/${chatId}/messages`, { text });
+    return unwrap(res);
+  }
+
+  public async initializeSupportChat(): Promise<any> {
+    const res = await apiPost('/api/app/support-chat/initialize', {});
+    return unwrap(res);
+  }
+
+  public async getMapsConfig(): Promise<any> {
+    const res = await apiGet('/api/app/integrations/google-maps/mobile-config');
+    return unwrap(res);
+  }
+
+  public async uploadPaymentProof(appointmentId: string, formData: FormData): Promise<{ success: boolean; message?: string }> {
+    const res = await apiPost(`/api/app/appointments/${appointmentId}/payment-proof`, undefined, { formData });
+    return { success: res.success !== false, message: res.message };
+  }
+
+  public async getFlashAlerts(): Promise<any[]> {
+    const res = await apiGet('/api/admin/flash-alerts/active?targetAudience=therapists');
+    return unwrapList(res, 'alerts', 'items');
+  }
+
+  public async trackFlashAlertClick(id: string): Promise<void> {
+    await apiPost(`/api/admin/flash-alerts/track/${id}/click`, {});
+  }
+
   /** Telehealth-eligible appointments = live appointments filtered client-side by consultationType/mode */
   public async getTelehealthAppointments(therapistId?: string): Promise<any[]> {
     const appointments = await this.getAppointments(therapistId);

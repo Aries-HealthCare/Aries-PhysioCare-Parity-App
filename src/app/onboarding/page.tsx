@@ -450,6 +450,7 @@ export default function ProviderOnboardingPage() {
   const [isFeePaid, setIsFeePaid] = useState(false);
   const [isFeeWaived, setIsFeeWaived] = useState(false);
   const [isPayingFee, setIsPayingFee] = useState(false);
+  const [pendingFeeOrderId, setPendingFeeOrderId] = useState<string | null>(null);
   const [isSubmittedSuccess, setIsSubmittedSuccess] = useState(false);
 
   // ── Pre-fill on Mount & Hydrate from Session (Run strictly once) ──
@@ -1096,7 +1097,8 @@ export default function ProviderOnboardingPage() {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 py-8 lg:py-12">
+      <main className="max-w-7xl mx-auto px-4 py-8 lg:py-12 lg:grid lg:grid-cols-[minmax(0,1fr)_240px] lg:gap-8">
+        <div className="min-w-0">
         {/* ── Stepper Indicator ───────────────────────── */}
         <div className="mb-8">
           <div className="grid grid-cols-5 gap-2 lg:gap-4 mb-4">
@@ -2878,12 +2880,54 @@ export default function ProviderOnboardingPage() {
                           <>
                             <Button
                               type="button"
-                              onClick={() => {
+                              onClick={async () => {
                                 setIsPayingFee(true);
-                                setTimeout(() => {
+                                try {
+                                  const res = await providerApi.createTransaction({
+                                    amount: feeConfig.amount,
+                                    currency: feeConfig.currency || 'INR',
+                                    purpose: 'onboarding_registration_fee',
+                                    country: selectedCountry,
+                                  });
+                                  if (!res.success) throw new Error(res.message || 'Could not create payment order');
+                                  const payload = res.result || {};
+                                  const checkoutUrl =
+                                    payload.paymentLink ||
+                                    payload.checkoutUrl ||
+                                    payload.cf_payment_url ||
+                                    payload.url;
+                                  const orderId = payload.orderId || payload.order_id || payload.cfOrderId;
+                                  if (checkoutUrl && typeof window !== 'undefined') {
+                                    window.open(checkoutUrl, '_blank', 'noopener,noreferrer');
+                                  }
+                                  if (!orderId && !(payload.status === 'PAID' || payload.paid)) {
+                                    throw new Error('No hosted checkout URL was returned. Payment was not recorded.');
+                                  }
+                                  if (payload.status === 'PAID' || payload.paid) {
+                                    setIsFeePaid(true);
+                                    return;
+                                  }
+                                  setPendingFeeOrderId(String(orderId));
+                                  let confirmed = false;
+                                  for (let attempt = 0; attempt < 12; attempt++) {
+                                    await new Promise((resolve) => setTimeout(resolve, 5000));
+                                    const verified = await providerApi.verifyCashfreeTransaction(String(orderId));
+                                    if (verified.success) {
+                                      confirmed = true;
+                                      break;
+                                    }
+                                  }
+                                  if (confirmed) {
+                                    setIsFeePaid(true);
+                                    setPendingFeeOrderId(null);
+                                  } else {
+                                    throw new Error('Checkout is still open. Complete payment, then tap Confirm payment.');
+                                  }
+                                } catch (err: any) {
+                                  alert(err?.message || 'Registration fee payment failed.');
+                                } finally {
                                   setIsPayingFee(false);
-                                  setIsFeePaid(true);
-                                }, 1200);
+                                }
                               }}
                               disabled={isPayingFee}
                               className="px-5 py-2.5 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-lg shadow-amber-500/20 flex items-center gap-1.5"
@@ -2898,12 +2942,34 @@ export default function ProviderOnboardingPage() {
 
                             <Button
                               type="button"
-                              variant="outline"
-                              onClick={() => setIsFeeWaived(true)}
+                              onClick={() => {
+                                alert('Fee waivers are issued by HQ after review. This client cannot mark the fee as paid on its own.');
+                              }}
                               className="px-4 py-2.5 rounded-2xl border-slate-700 hover:bg-slate-800 text-slate-300 text-xs font-semibold"
                             >
-                              Apply Waiver
+                              Request waiver
                             </Button>
+                            {pendingFeeOrderId ? (
+                              <Button
+                                type="button"
+                                onClick={async () => {
+                                  setIsPayingFee(true);
+                                  try {
+                                    const verified = await providerApi.verifyCashfreeTransaction(pendingFeeOrderId);
+                                    if (!verified.success) throw new Error(verified.message || 'Payment is not confirmed yet.');
+                                    setIsFeePaid(true);
+                                    setPendingFeeOrderId(null);
+                                  } catch (err: any) {
+                                    alert(err?.message || 'Payment is not confirmed yet.');
+                                  } finally {
+                                    setIsPayingFee(false);
+                                  }
+                                }}
+                                className="px-4 py-2.5 rounded-2xl bg-emerald-600 text-white text-xs font-semibold"
+                              >
+                                Confirm payment
+                              </Button>
+                            ) : null}
                           </>
                         )}
 
@@ -3066,6 +3132,25 @@ export default function ProviderOnboardingPage() {
           onAccept={() => setAgreeTermsAndPolicies(true)}
           country={selectedCountry}
         />
+        </div>
+        <aside className="hidden lg:block space-y-4">
+          <div className="rounded-3xl border border-slate-800 bg-slate-900/70 p-4 space-y-3 sticky top-24">
+            <p className="text-[10px] font-extrabold uppercase tracking-widest text-teal-400">Requirements</p>
+            <p className="text-sm font-bold text-white">{STEPS[currentStep]?.title}</p>
+            <p className="text-xs text-slate-400">{STEPS[currentStep]?.desc}</p>
+            <ul className="space-y-2 text-xs text-slate-300">
+              {(COUNTRY_CONFIGS[selectedCountry]?.idRequirements || []).slice(0, 6).map((req) => (
+                <li key={req.key} className="flex items-start gap-2">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-teal-400 mt-0.5 shrink-0" />
+                  <span>{req.label}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="text-[11px] text-slate-500">
+              Progress is stored as onboardingStep on your therapist record, so mobile and web resume the same step.
+            </p>
+          </div>
+        </aside>
       </main>
     </div>
   );

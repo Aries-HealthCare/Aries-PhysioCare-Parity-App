@@ -17,8 +17,11 @@ import {
   Loader2,
   AlertTriangle,
 } from 'lucide-react';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { LOCALES, LOCALE_STORAGE_KEY, readLocale, type Locale } from '@/lib/i18n';
+import { browserNotifyEnabled, disableBrowserNotify, enableBrowserNotify } from '@/lib/browser-notify';
 
 /**
  * Provider settings — backed by the same endpoints the mobile settings screen writes:
@@ -79,10 +82,15 @@ export default function ProviderSettingsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notifyPref, setNotifyPref] = useState<'on' | 'off' | 'unsupported'>('off');
+  const [locale, setLocale] = useState<Locale>('en');
 
   // Re-hydrate whenever the backing profile changes (login, refresh, mobile edit).
   useEffect(() => {
     setForm(fromProfile(user));
+    setLocale(readLocale());
+    if (typeof window !== 'undefined' && !('Notification' in window)) setNotifyPref('unsupported');
+    else setNotifyPref(browserNotifyEnabled() ? 'on' : 'off');
   }, [user]);
 
   const set = <K extends keyof SettingsState>(key: K, value: SettingsState[K]) =>
@@ -334,12 +342,65 @@ export default function ProviderSettingsPage() {
         </div>
       </div>
 
+      <div className="bg-card border border-border/80 rounded-3xl p-6 shadow-sm space-y-4">
+        <h3 className="text-sm font-extrabold text-foreground flex items-center gap-2">
+          <Globe className="w-4 h-4 text-primary" />
+          Language
+        </h3>
+        <p className="text-xs text-muted-foreground">
+          Display language for this browser. Mobile AppLocalizations still follow the phone locale — there is no separate backend preference.
+        </p>
+        <select
+          value={locale}
+          onChange={(e) => {
+            const next = e.target.value as Locale;
+            setLocale(next);
+            localStorage.setItem(LOCALE_STORAGE_KEY, next);
+            document.documentElement.lang = next;
+            document.documentElement.dir = next === 'ar' ? 'rtl' : 'ltr';
+          }}
+          className="px-3 py-2 bg-background border border-input rounded-xl text-xs font-bold"
+        >
+          {LOCALES.map((code) => (
+            <option key={code} value={code}>
+              {code === 'en' ? 'English' : code === 'hi' ? 'Hindi' : code === 'ar' ? 'Arabic' : 'Spanish'}
+            </option>
+          ))}
+        </select>
+        <div className="flex items-center justify-between p-3.5 bg-muted/20 rounded-2xl text-xs">
+          <div>
+            <div className="font-bold">Browser notifications</div>
+            <div className="text-muted-foreground">
+              When this tab is in the background, leads, SOS and flash alerts can surface as OS notifications. FCM web tokens are not required.
+            </div>
+          </div>
+          <input
+            type="checkbox"
+            checked={notifyPref === 'on'}
+            disabled={notifyPref === 'unsupported'}
+            onChange={async (e) => {
+              if (e.target.checked) {
+                const result = await enableBrowserNotify();
+                setNotifyPref(result === 'granted' ? 'on' : result === 'unsupported' ? 'unsupported' : 'off');
+              } else {
+                disableBrowserNotify();
+                setNotifyPref('off');
+              }
+            }}
+            className="h-4 w-4 rounded text-primary"
+          />
+        </div>
+        <Link href="/app/settings/emergency" className="inline-flex text-sm font-bold text-primary">
+          Manage emergency contacts →
+        </Link>
+      </div>
+
       {/* System status & logout */}
       <div className="bg-card border border-border/80 rounded-3xl p-6 shadow-sm space-y-4">
         <div className="flex items-center justify-between text-xs text-muted-foreground">
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-emerald-500" />
-            <span>Aries Core Web Engine v2.4.0 (PWA Enabled)</span>
+            <span>AriesXpert parity {process.env.NEXT_PUBLIC_APP_VERSION || '2.0.0-parity'}</span>
           </div>
           <button
             type="button"

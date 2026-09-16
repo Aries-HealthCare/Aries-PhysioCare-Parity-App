@@ -34,7 +34,7 @@ import { Input } from '@/components/ui/input';
  * so the coin balance shown here is the balance the phone shows.
  */
 
-type GameMode = 'TOURNAMENT' | 'LEADERBOARD' | 'COINS';
+type GameMode = 'TOURNAMENT' | 'LEADERBOARD' | 'COINS' | 'QUIZZES' | 'TASKS';
 
 export default function ProviderGamingArenaPage() {
   const { user } = useProviderAuth();
@@ -58,12 +58,17 @@ export default function ProviderGamingArenaPage() {
   const [aliasInput, setAliasInput] = useState('');
   const [transferAmount, setTransferAmount] = useState('');
   const [isTransferring, setIsTransferring] = useState(false);
+  const [quizzes, setQuizzes] = useState<any[]>([]);
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [activeQuiz, setActiveQuiz] = useState<any | null>(null);
 
   const load = useCallback(async () => {
     setIsLoading(true);
-    const [profileRes, leaderboardRes] = await Promise.allSettled([
+    const [profileRes, leaderboardRes, quizRes, taskRes] = await Promise.allSettled([
       providerApi.getGamingProfile(),
       providerApi.getGamingLeaderboard(),
+      providerApi.getTopicQuizzes(),
+      providerApi.getProactiveTasks(),
     ]);
 
     if (profileRes.status === 'fulfilled') {
@@ -74,6 +79,14 @@ export default function ProviderGamingArenaPage() {
       setError((profileRes.reason as any)?.message || 'Could not load your gaming profile.');
     }
     if (leaderboardRes.status === 'fulfilled') setLeaderboard(leaderboardRes.value);
+    if (quizRes.status === 'fulfilled') {
+      const value = quizRes.value as any;
+      setQuizzes(Array.isArray(value) ? value : value?.quizzes || []);
+    }
+    if (taskRes.status === 'fulfilled') {
+      const value = taskRes.value;
+      setTasks(Array.isArray(value) ? value : value ? [value] : []);
+    }
     setIsLoading(false);
   }, []);
 
@@ -192,6 +205,8 @@ export default function ProviderGamingArenaPage() {
 
   const MODES: Array<{ id: GameMode; label: string; icon: React.ReactNode }> = [
     { id: 'TOURNAMENT', label: 'Daily Tournament', icon: <Gamepad2 className="w-3.5 h-3.5" /> },
+    { id: 'QUIZZES', label: 'Topic quizzes', icon: <Trophy className="w-3.5 h-3.5" /> },
+    { id: 'TASKS', label: 'Tasks', icon: <Flame className="w-3.5 h-3.5" /> },
     { id: 'LEADERBOARD', label: 'Leaderboard', icon: <Trophy className="w-3.5 h-3.5" /> },
     { id: 'COINS', label: 'Coins & Alias', icon: <Coins className="w-3.5 h-3.5" /> },
   ];
@@ -374,6 +389,69 @@ export default function ProviderGamingArenaPage() {
                 </div>
               )}
             </div>
+          )}
+        </div>
+      )}
+
+      {/* Topic quizzes */}
+      {activeMode === 'QUIZZES' && (
+        <div className="bg-card border border-border/80 rounded-3xl p-6 shadow-sm space-y-3">
+          <h3 className="text-base font-outfit font-extrabold">Topic quizzes</h3>
+          {!quizzes.length ? (
+            <p className="text-xs text-muted-foreground">No topic quizzes assigned yet. Academy modules appear here and under Training.</p>
+          ) : (
+            quizzes.map((quiz) => (
+              <div key={quiz._id || quiz.id || quiz.topicId} className="flex items-center justify-between gap-3 p-3 rounded-2xl border border-border">
+                <div>
+                  <p className="text-sm font-bold">{quiz.name || quiz.title || 'Clinical quiz'}</p>
+                  <p className="text-[11px] text-muted-foreground">{quiz.count || quiz.questions?.length || 0} questions</p>
+                </div>
+                <Button
+                  className="rounded-2xl text-xs"
+                  onClick={async () => {
+                    const started = await providerApi.startTopicQuiz(quiz.topicId || quiz.id || quiz._id);
+                    setActiveQuiz(started);
+                    setNotice(started?.message || 'Quiz started.');
+                  }}
+                >
+                  Start
+                </Button>
+              </div>
+            ))
+          )}
+          {activeQuiz?.question ? (
+            <p className="text-xs text-muted-foreground">Live prompt: {activeQuiz.question?.question || activeQuiz.question}</p>
+          ) : null}
+        </div>
+      )}
+
+      {activeMode === 'TASKS' && (
+        <div className="bg-card border border-border/80 rounded-3xl p-6 shadow-sm space-y-3">
+          <h3 className="text-base font-outfit font-extrabold">Proactive tasks</h3>
+          {!tasks.length ? (
+            <p className="text-xs text-muted-foreground">No proactive tasks from the gaming economy yet.</p>
+          ) : (
+            tasks.map((task, idx) => (
+              <div key={task._id || task.id || idx} className="flex items-center justify-between gap-3 p-3 rounded-2xl border border-border">
+                <div>
+                  <p className="text-sm font-bold">{task.title || task.name || 'Task'}</p>
+                  <p className="text-[11px] text-muted-foreground">{task.description || task.reward ? `${task.reward} coins` : ''}</p>
+                </div>
+                <Button
+                  className="rounded-2xl text-xs"
+                  onClick={async () => {
+                    const res = await providerApi.submitProactiveTask({ taskId: task._id || task.id, completed: true });
+                    if (!res.success) setError(res.message || 'Task was not accepted.');
+                    else {
+                      setNotice(res.message || 'Task submitted.');
+                      await load();
+                    }
+                  }}
+                >
+                  Complete
+                </Button>
+              </div>
+            ))
           )}
         </div>
       )}

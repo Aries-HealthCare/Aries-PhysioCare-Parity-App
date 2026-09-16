@@ -92,6 +92,9 @@ export default function ProviderVisitsPage() {
   const [selectedAssessmentForm, setSelectedAssessmentForm] = useState<DynamicAssessmentForm | null>(null);
   const [treatmentSeconds, setTreatmentSeconds] = useState(0);
   const [isTimerRunning, setIsTimerRunning] = useState(true);
+  const [qrImage, setQrImage] = useState<string | null>(null);
+  const [qrOrderId, setQrOrderId] = useState<string | null>(null);
+  const [proofFile, setProofFile] = useState<File | null>(null);
 
   // Treatment stopwatch timer
   useEffect(() => {
@@ -300,7 +303,35 @@ export default function ProviderVisitsPage() {
     };
 
     try {
-      const res = await providerApi.finalizeVisit(payload);
+      if (paymentMethod === 'upi_qr') {
+        const qr = await providerApi.generatePaymentQr({
+          appointmentId: id,
+          amount: sessionFee + addOnTotal,
+        });
+        const image = qr?.qrImage || qr?.qr || qr?.image;
+        const orderId = qr?.orderId || qr?.order_id;
+        if (image) setQrImage(image);
+        if (orderId) {
+          setQrOrderId(orderId);
+          const status = await providerApi.getPaymentStatus(orderId);
+          const paid = ['PAID', 'paid', 'SUCCESS', 'success'].includes(String(status?.status || status?.paymentStatus || ''));
+          if (!paid) {
+            setFeedback({ type: 'info', text: 'UPI QR generated. Finalize after the payment status is PAID.' });
+            return;
+          }
+        }
+      }
+      if (paymentMethod === 'cash' && proofFile) {
+        const fd = new FormData();
+        fd.append('file', proofFile);
+        fd.append('appointmentId', id);
+        await providerApi.uploadPaymentProof(id, fd);
+      }
+
+      const res = await providerApi.finalizeVisit({
+        ...payload,
+        isPaymentCollected: paymentMethod !== 'online',
+      });
       if (!res.success) {
         setFeedback({
           type: 'error',
@@ -813,6 +844,44 @@ export default function ProviderVisitsPage() {
                   })}
                 </div>
               </div>
+
+              {paymentMethod === 'upi_qr' ? (
+                <div className="rounded-2xl border border-border p-3 text-center space-y-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="rounded-2xl"
+                    onClick={async () => {
+                      const id = activeApt._id || activeApt.id;
+                      const sessionFee = Number(activeApt.perSessionPrice ?? activeApt.amount ?? 0) || 0;
+                      const addOnTotal = selectedAddOns.reduce((sum, name) => sum + (ADDON_PRICING[name] || 0), 0);
+                      try {
+                        const qr = await providerApi.generatePaymentQr({ appointmentId: id, amount: sessionFee + addOnTotal });
+                        setQrImage(qr?.qrImage || qr?.qr || qr?.image || null);
+                        setQrOrderId(qr?.orderId || qr?.order_id || null);
+                      } catch (err: any) {
+                        setFeedback({ type: 'error', text: err?.message || 'Could not generate UPI QR.' });
+                      }
+                    }}
+                  >
+                    Generate UPI QR
+                  </Button>
+                  {qrImage ? <img src={qrImage} alt="UPI QR" className="w-40 h-40 mx-auto rounded-xl bg-white p-2" /> : null}
+                  {qrOrderId ? <p className="text-[10px] font-mono text-muted-foreground">Order {qrOrderId}</p> : null}
+                </div>
+              ) : null}
+
+              {paymentMethod === 'cash' ? (
+                <label className="block text-xs font-bold">
+                  Payment proof (optional photo)
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="mt-2 block w-full text-xs"
+                    onChange={(e) => setProofFile(e.target.files?.[0] || null)}
+                  />
+                </label>
+              ) : null}
 
               <Button
                 onClick={handleFinalizeVisit}

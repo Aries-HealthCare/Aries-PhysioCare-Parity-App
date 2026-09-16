@@ -16,6 +16,7 @@ import {
   User,
   ShieldCheck,
 } from 'lucide-react';
+import { TelehealthRoom } from '@/components/telehealth/telehealth-room';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
@@ -45,6 +46,8 @@ interface ActiveSession {
   meetLink?: string;
   roomId?: string;
   provider?: string;
+  agoraAppId?: string;
+  agoraToken?: string;
   startedAt: number;
 }
 
@@ -119,8 +122,10 @@ export default function ProviderTelehealthPage() {
       setSession({
         appointmentId: id,
         meetLink: data.meetLink,
-        roomId: data.roomId,
+        roomId: data.roomId || data.channel,
         provider: data.provider,
+        agoraAppId: data.agoraAppId || data.appId,
+        agoraToken: data.token || data.agoraToken,
         startedAt: Date.now(),
       });
       setActiveAppointment(appointment);
@@ -312,6 +317,14 @@ export default function ProviderTelehealthPage() {
                 The patient has been sent their join link over WhatsApp and email by the backend.
                 Open the room below to join the call.
               </p>
+
+              {session.agoraAppId && session.roomId ? (
+                <TelehealthRoom
+                  appId={session.agoraAppId}
+                  channel={session.roomId}
+                  token={session.agoraToken}
+                />
+              ) : null}
 
               {session.meetLink ? (
                 <a href={session.meetLink} target="_blank" rel="noopener noreferrer">

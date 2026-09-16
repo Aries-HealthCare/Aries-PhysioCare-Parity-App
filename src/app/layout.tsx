@@ -3,8 +3,8 @@ import { Inter, Space_Grotesk, Outfit } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/toaster";
-import { RequestCallbackProvider } from "@/components/request-callback-provider";
 import { ProviderAuthProvider } from "@/services/provider-auth-context";
+import { ServiceWorkerRegister } from "@/components/pwa/register-sw";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -68,12 +68,11 @@ export default function RootLayout({
     >
       <body className="antialiased min-h-screen bg-[#030712] text-foreground flex flex-col selection:bg-teal-500 selection:text-white">
         <ThemeProvider>
-          <RequestCallbackProvider>
-            <ProviderAuthProvider>
-              {children}
-              <Toaster />
-            </ProviderAuthProvider>
-          </RequestCallbackProvider>
+          <ProviderAuthProvider>
+            <ServiceWorkerRegister />
+            {children}
+            <Toaster />
+          </ProviderAuthProvider>
         </ThemeProvider>
       </body>
     </html>

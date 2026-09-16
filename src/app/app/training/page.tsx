@@ -121,6 +121,9 @@ export default function ProviderTrainingPage() {
                   <Button
                     variant={isDone ? 'outline' : 'default'}
                     className="h-10 px-4 rounded-xl text-xs font-bold"
+                    onClick={async () => {
+                      await providerApi.startTopicQuiz(mod.id);
+                    }}
                   >
                     <Play className="w-3.5 h-3.5 mr-1.5" />
                     <span>{isDone ? 'Review SOP' : 'Start Module'}</span>

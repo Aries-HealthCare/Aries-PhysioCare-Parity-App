@@ -30,13 +30,13 @@ import { CountrySelector, COUNTRIES_CONFIG } from '@/components/country-selector
 import { motion, AnimatePresence } from 'framer-motion';
 import { Login3DBackground } from './login-3d-background';
 
-type ScreenMode = 'mobile' | 'email' | 'otp' | 'reset';
+type ScreenMode = 'mobile' | 'email' | 'otp' | 'emailOtp' | 'reset' | 'resetOtp';
 
-const SCREEN_ORDER: ScreenMode[] = ['mobile', 'otp', 'email', 'reset'];
+const SCREEN_ORDER: ScreenMode[] = ['mobile', 'otp', 'email', 'emailOtp', 'reset', 'resetOtp'];
 
 export function LoginPortal() {
   const router = useRouter();
-  const { user, loginWithPhoneOtp, loginWithEmail, isAuthenticated } = useProviderAuth();
+  const { user, loginWithPhoneOtp, loginWithEmail, loginWithEmailOtp, isAuthenticated } = useProviderAuth();
 
   const [currentScreen, setCurrentScreen] = useState<ScreenMode>('mobile');
   const [screenDirection, setScreenDirection] = useState<1 | -1>(1);
@@ -54,6 +54,9 @@ export function LoginPortal() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
+  const [resetOtp, setResetOtp] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
   // Status & Feedback State
   const [isLoading, setIsLoading] = useState(false);
@@ -219,7 +222,52 @@ export function LoginPortal() {
     otpRefs.current[nextIndex]?.focus();
   };
 
-  // ── 5. Password Reset Handler ──
+  const handleSendEmailOtp = async () => {
+    if (!email.trim()) {
+      setErrorMessage('Please enter your registered email address.');
+      return;
+    }
+    setIsLoading(true);
+    setErrorMessage('');
+    try {
+      const res = await providerApi.sendEmailOTP(email.trim());
+      if (!res.success) {
+        setErrorMessage(res.message || 'Could not send the email code.');
+        return;
+      }
+      setSuccessMessage(res.message || 'Verification code sent to your email.');
+      setOtp(['', '', '', '', '', '']);
+      navigateTo('emailOtp');
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Could not send the email code.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleVerifyEmailOtp = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const otpValue = otp.join('');
+    if (otpValue.length !== 6) {
+      setErrorMessage('Please enter the complete 6-digit verification code.');
+      return;
+    }
+    setIsLoading(true);
+    setErrorMessage('');
+    try {
+      const success = await loginWithEmailOtp(email.trim(), otpValue);
+      if (!success) {
+        setErrorMessage('Invalid email code, or no expert profile exists for this address.');
+        return;
+      }
+      setSuccessMessage('Email verified. Opening your workstation…');
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Email verification failed.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handlePasswordReset = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim()) {
@@ -229,10 +277,47 @@ export function LoginPortal() {
     setIsLoading(true);
     setErrorMessage('');
     try {
-      setSuccessMessage('Password recovery instructions sent to your email.');
-      setTimeout(() => navigateTo('email'), 2000);
+      const otpRes = await providerApi.sendPasswordResetOTP(email.trim());
+      const mailRes = await providerApi.forgotPassword(email.trim());
+      if (!otpRes.success && !mailRes.success) {
+        setErrorMessage(otpRes.message || mailRes.message || 'Could not start password recovery.');
+        return;
+      }
+      setSuccessMessage(
+        otpRes.message || mailRes.message || 'If that email is registered, a reset code and link were sent.'
+      );
+      setResetOtp('');
+      navigateTo('resetOtp');
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed to send recovery instructions.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleConfirmReset = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPassword !== confirmPassword) {
+      setErrorMessage('Passwords do not match.');
+      return;
+    }
+    setIsLoading(true);
+    setErrorMessage('');
+    try {
+      const verified = await providerApi.verifyPasswordResetOTP(email.trim(), resetOtp);
+      if (!verified.success || !verified.resetToken) {
+        setErrorMessage(verified.message || 'Invalid or expired reset code.');
+        return;
+      }
+      const res = await providerApi.resetPassword({ token: verified.resetToken, newPassword });
+      if (!res.success) {
+        setErrorMessage(res.message || 'Could not reset password.');
+        return;
+      }
+      setSuccessMessage(res.message || 'Password updated. Sign in with the new password.');
+      setTimeout(() => navigateTo('email'), 1200);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Could not reset password.');
     } finally {
       setIsLoading(false);
     }
@@ -619,11 +704,19 @@ export function LoginPortal() {
                         </div>
                       )}
                     </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={isLoading}
+                      onClick={handleSendEmailOtp}
+                      className="w-full h-11 rounded-2xl border-teal-500/30 text-teal-300 font-bold text-xs"
+                    >
+                      Sign in with email code
+                    </Button>
                   </form>
                 </motion.div>
               )}
 
-              {/* ── Screen 4: Password Reset ── */}
               {currentScreen === 'reset' && (
                 <motion.div
                   key="reset"
@@ -673,11 +766,89 @@ export function LoginPortal() {
                       {isLoading ? (
                         <div className="flex items-center gap-2">
                           <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
-                          <span>Dispatching Instructions...</span>
+                          <span>Dispatching recovery…</span>
                         </div>
                       ) : (
-                        <span>Send Recovery Email</span>
+                        <span>Send reset code</span>
                       )}
+                    </Button>
+                  </form>
+                </motion.div>
+              )}
+
+              {currentScreen === 'emailOtp' && (
+                <motion.div
+                  key="emailOtp"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  className="space-y-4"
+                >
+                  <button type="button" onClick={() => navigateTo('email')} className="inline-flex items-center gap-1 text-xs text-teal-400 font-semibold">
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    Back to password
+                  </button>
+                  <p className="text-xs text-slate-400">Enter the 6-digit code sent to {email || 'your email'}.</p>
+                  <form onSubmit={handleVerifyEmailOtp} className="space-y-4">
+                    <div className="flex justify-between gap-2">
+                      {otp.map((digit, idx) => (
+                        <Input
+                          key={idx}
+                          ref={(el) => {
+                            otpRefs.current[idx] = el;
+                          }}
+                          value={digit}
+                          maxLength={1}
+                          onChange={(e) => handleOtpChange(idx, e.target.value)}
+                          onKeyDown={(e) => handleOtpKeyDown(idx, e)}
+                          onPaste={handleOtpPaste}
+                          className="h-12 w-10 text-center font-mono text-lg rounded-xl bg-slate-950"
+                        />
+                      ))}
+                    </div>
+                    <Button disabled={isLoading} className="w-full h-12 rounded-2xl bg-teal-500 text-slate-950 font-black">
+                      {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Verify email code'}
+                    </Button>
+                  </form>
+                </motion.div>
+              )}
+
+              {currentScreen === 'resetOtp' && (
+                <motion.div
+                  key="resetOtp"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  className="space-y-4"
+                >
+                  <button type="button" onClick={() => navigateTo('reset')} className="inline-flex items-center gap-1 text-xs text-teal-400 font-semibold">
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    Back
+                  </button>
+                  <form onSubmit={handleConfirmReset} className="space-y-4">
+                    <div className="space-y-1.5">
+                      <Label>Email reset code</Label>
+                      <Input
+                        value={resetOtp}
+                        onChange={(e) => setResetOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        maxLength={6}
+                        className="h-12 rounded-2xl bg-slate-950 font-mono tracking-[0.3em] text-center"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>New password</Label>
+                      <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="h-12 rounded-2xl bg-slate-950" required />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label>Confirm password</Label>
+                      <Input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} className="h-12 rounded-2xl bg-slate-950" required />
+                    </div>
+                    <p className="text-[11px] text-slate-400">
+                      Password must be at least 7 characters with one uppercase letter, one number, and one special character. A recovery link also works at /reset-password.
+                    </p>
+                    <Button disabled={isLoading} className="w-full h-12 rounded-2xl bg-teal-500 text-slate-950 font-black">
+                      {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Set new password'}
                     </Button>
                   </form>
                 </motion.div>

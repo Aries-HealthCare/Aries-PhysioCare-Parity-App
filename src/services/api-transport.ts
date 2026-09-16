@@ -17,6 +17,11 @@
  */
 
 import { getBackendOrigin } from '@/lib/backend-api-config';
+import { persistBrowserSession } from '@/lib/expert-session';
+import { unwrap, unwrapList, type ApiEnvelope } from '@/lib/api-envelope';
+
+export { unwrap, unwrapList };
+export type { ApiEnvelope };
 
 export class ApiError extends Error {
   readonly statusCode: number;
@@ -63,17 +68,19 @@ export function writeToken(token: string) {
       /* ignore */
     }
   }
+  void persistBrowserSession(token);
 }
 
 export function clearStoredToken() {
   if (typeof window === 'undefined') return;
-  for (const key of [...TOKEN_KEYS, 'expert_user_data']) {
+  for (const key of [...TOKEN_KEYS, 'expert_user_data', 'cached_active_session']) {
     try {
       window.localStorage.removeItem(key);
     } catch {
       /* ignore */
     }
   }
+  void persistBrowserSession(null);
 }
 
 /**
@@ -100,15 +107,6 @@ function buildHeaders(includeAuth: boolean, isMultipart: boolean): Record<string
     if (token) headers['Authorization'] = `Bearer ${token}`;
   }
   return headers;
-}
-
-export interface ApiEnvelope<T = any> {
-  success?: boolean;
-  message?: string;
-  result?: T;
-  data?: T;
-  count?: number;
-  [key: string]: any;
 }
 
 interface RequestOptions {
@@ -145,6 +143,7 @@ export async function apiRequest<T = any>(
       response = await fetch(url, {
         method,
         headers: buildHeaders(includeAuth, !!formData),
+        credentials: 'include',
         body:
           method === 'GET'
             ? undefined
@@ -222,30 +221,3 @@ export const apiPatch = <T = any>(path: string, body?: unknown, options?: Reques
 export const apiDelete = <T = any>(path: string, options?: RequestOptions) =>
   apiRequest<T>('DELETE', path, options);
 
-/**
- * Unwraps the backend envelope the same way the Flutter models do:
- * `result` first, then `data`, then the raw body.
- */
-export function unwrap<T = any>(envelope: ApiEnvelope<T> | null | undefined): any {
-  if (!envelope) return null;
-  if (envelope.result !== undefined && envelope.result !== null) return envelope.result;
-  if (envelope.data !== undefined && envelope.data !== null) return envelope.data;
-  return envelope;
-}
-
-/** Unwraps to an array, tolerating `{result: []}`, `{data: {items: []}}` and bare arrays. */
-export function unwrapList(envelope: ApiEnvelope | null | undefined, ...keys: string[]): any[] {
-  if (!envelope) return [];
-  for (const key of keys) {
-    const direct = (envelope as any)[key];
-    if (Array.isArray(direct)) return direct;
-    const nestedResult = (envelope as any).result?.[key];
-    if (Array.isArray(nestedResult)) return nestedResult;
-    const nestedData = (envelope as any).data?.[key];
-    if (Array.isArray(nestedData)) return nestedData;
-  }
-  if (Array.isArray(envelope.result)) return envelope.result as any[];
-  if (Array.isArray(envelope.data)) return envelope.data as any[];
-  if (Array.isArray(envelope)) return envelope as any;
-  return [];
-}

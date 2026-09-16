@@ -25,6 +25,12 @@
   "include": ["next-env.d.ts", "src/**/*.ts", "src/**/*.tsx", ".next/types/**/*.ts"],
   "exclude": [
     "node_modules",
+    "src/firebase",
+    "src/ai",
+    "src/app/actions",
+    "src/**/*.test.ts",
+    "tests",
+    "playwright.config.ts",
     "AriesXpert-Admin-Dashboard",
     "AriesXpert-Website-Canada",
     "AriesXpert-Website-India",

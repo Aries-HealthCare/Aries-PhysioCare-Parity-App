@@ -7,13 +7,12 @@
   },
   "scripts": {
     "dev": "next dev",
-    "genkit:dev": "genkit start -- tsx src/ai/dev.ts",
-    "genkit:watch": "genkit start -- tsx --watch src/ai/dev.ts",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "npm run typecheck && npm run lint"
+    "test": "node --experimental-strip-types --test src/lib/visit-status.test.ts src/lib/expert-session.test.ts src/services/unwrap.test.ts src/services/auth-routing.test.ts src/lib/i18n.test.ts",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@genkit-ai/google-genai": "^1.20.0",

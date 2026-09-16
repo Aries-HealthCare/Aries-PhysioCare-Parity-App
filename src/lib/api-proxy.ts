@@ -39,11 +39,17 @@ export function createBackendProxy(prefix: 'app' | 'admin' | 'v1' | 'root') {
             'content-length',
             'accept-encoding',
             'transfer-encoding',
+            'cookie',
           ].includes(key.toLowerCase())
         ) {
           headers[key] = value;
         }
       });
+
+      const sessionToken = req.cookies.get('ax_expert_session')?.value;
+      if (sessionToken && !headers.authorization && !headers.Authorization) {
+        headers.Authorization = `Bearer ${sessionToken}`;
+      }
 
       const method = req.method;
       const body = ['GET', 'HEAD'].includes(method) ? undefined : await req.arrayBuffer();

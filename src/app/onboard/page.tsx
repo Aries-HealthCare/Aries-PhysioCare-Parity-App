@@ -1,8 +1,12 @@
 'use client';
 
-import React from 'react';
-import { OnboardingFlow } from '@/components/onboarding/onboarding-flow';
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 
-export default function OnboardPage() {
-  return <OnboardingFlow />;
+export default function LegacyOnboardRedirect() {
+  const router = useRouter();
+  useEffect(() => {
+    router.replace('/onboarding');
+  }, [router]);
+  return null;
 }
