@@ -3,12 +3,6 @@ import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
   outputFileTracingRoot: path.join(__dirname),
-  typescript: {
-    ignoreBuildErrors: false,
-  },
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
   poweredByHeader: false,
   compress: true,
   productionBrowserSourceMaps: false,
