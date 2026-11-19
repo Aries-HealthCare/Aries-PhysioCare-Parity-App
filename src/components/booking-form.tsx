@@ -63,7 +63,7 @@ const bookingSchema = z.object({
   area: z.string().min(1, 'Area Hub is required'),
   address: z.string().min(1, 'Full address is required'),
   service: z.string().min(1, 'Service is required'),
-  date: z.date({ required_error: 'Please select an appointment date' }),
+  date: z.date({ message: 'Please select an appointment date' }),
   time: z.string().min(1, 'Please select a preferred time slot'),
   paymentMethod: z.enum(['card', 'upi', 'cash']).default('card'),
   condition: z.string().optional(),

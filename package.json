@@ -35,18 +35,42 @@
     "socket.io-client": "^4.8.1",
     "tailwind-merge": "^3.0.1",
     "tailwindcss-animate": "^1.0.7",
-    "zod": "^3.24.2"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@types/node": "^20",
     "@types/react": "^19.2.1",
     "@types/react-dom": "^19.2.1",
-    "postcss": "^8",
+    "postcss": "^8.5.23",
     "tailwindcss": "^3.4.1",
     "typescript": "^5"
   },
   "overrides": {
     "react": "$react",
-    "react-dom": "$react-dom"
+    "react-dom": "$react-dom",
+    "websocket-driver": "^0.8.0",
+    "systeminformation": "^5.33.16",
+    "body-parser": "^1.20.9",
+    "zod": "^4.6.6",
+    "@grpc/grpc-js": "^1.13.6",
+    "adm-zip": "^0.6.1",
+    "postcss": "^8.5.23",
+    "@opentelemetry/propagator-jaeger": "^2.9.0",
+    "uuid": "^11.1.1",
+    "express-rate-limit": "^8.7.5",
+    "hono": "^4.13.16",
+    "@hono/node-server": "^2.1.6",
+    "minimatch": "^11.0.1",
+    "glob": "^14.0.2",
+    "follow-redirects": "^1.16.2",
+    "@opentelemetry/instrumentation-cassandra-driver": "^0.66.0",
+    "@opentelemetry/instrumentation-knex": "^0.65.0",
+    "@opentelemetry/instrumentation-mongoose": "^0.67.0",
+    "@opentelemetry/instrumentation-mysql": "^0.67.0",
+    "@opentelemetry/instrumentation-mysql2": "^0.67.0",
+    "@opentelemetry/instrumentation-pg": "^0.73.0",
+    "@opentelemetry/instrumentation-tedious": "^0.40.0",
+    "@opentelemetry/core": "^2.8.0",
+    "fast-xml-parser": "^5.12.0"
   }
 }

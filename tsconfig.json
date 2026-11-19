@@ -33,7 +33,6 @@
     "node_modules",
     "src/firebase",
     "src/ai",
-    "src/app/actions",
     "src/**/*.test.ts",
     "tests"
   ]
