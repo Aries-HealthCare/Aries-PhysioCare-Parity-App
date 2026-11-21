@@ -4,6 +4,7 @@ import {
   needsOnboarding,
   isOnboardingPendingReview,
   resolvePostAuthRoute,
+  resolveOnboardingDisplayState,
 } from '../lib/onboarding-gate.ts';
 import {
   extractDocUrl,
@@ -53,6 +54,46 @@ test('incomplete experts with early step and non-empty incompleteChecklist still
   assert.equal(resolvePostAuthRoute(user), '/onboarding-status');
 });
 
+test('stale or conflicting isProfileActive / status flags never bypass /onboarding-status into /app', () => {
+  const activeIncompleteWithChecklist = {
+    _id: 't1',
+    isProfileActive: true,
+    onboardingStatus: 'incomplete',
+    incompleteChecklist: [{ key: 'profilePhoto', status: 'pending' }],
+  };
+  const activeUnderReview = {
+    _id: 't1',
+    isProfileActive: true,
+    onboardingStatus: 'under_review',
+    onboardingStep: 5,
+  };
+  const approvedButStatusIncomplete = {
+    _id: 't1',
+    onboardingStatus: 'approved',
+    status: 'Incomplete',
+  };
+  const approvedWithChecklist = {
+    _id: 't1',
+    isProfileActive: true,
+    onboardingStatus: 'approved',
+    status: 'Approved',
+    incompleteChecklist: [{ key: 'cancelledCheque', status: 'pending' }],
+  };
+
+  assert.equal(resolvePostAuthRoute(activeIncompleteWithChecklist), '/onboarding-status');
+  assert.equal(needsOnboarding(activeIncompleteWithChecklist), true);
+  assert.equal(isOnboardingPendingReview(activeIncompleteWithChecklist), true);
+
+  assert.equal(resolvePostAuthRoute(activeUnderReview), '/onboarding-status');
+  assert.equal(needsOnboarding(activeUnderReview), true);
+
+  assert.equal(resolvePostAuthRoute(approvedButStatusIncomplete), '/onboarding-status');
+  assert.equal(needsOnboarding(approvedButStatusIncomplete), true);
+
+  assert.equal(resolvePostAuthRoute(approvedWithChecklist), '/onboarding-status');
+  assert.equal(needsOnboarding(approvedWithChecklist), true);
+});
+
 test('incomplete experts with step >= 5 and no checklist route to /onboarding-status', () => {
   assert.equal(
     resolvePostAuthRoute({ _id: 't1', onboardingStep: 5, onboardingStatus: 'incomplete', incompleteChecklist: [] }),
@@ -60,26 +101,85 @@ test('incomplete experts with step >= 5 and no checklist route to /onboarding-st
   );
 });
 
-test('rejected and suspended experts route to /onboarding-status even with onboardingStep 5', () => {
+test('rejected and suspended experts route to /onboarding-status even with onboardingStep 5 or stale isProfileActive', () => {
   const rejected = { _id: 't1', onboardingStep: 5, onboardingStatus: 'rejected', status: 'Rejected' };
   const suspended = { _id: 't1', onboardingStep: 5, onboardingStatus: 'suspended', status: 'Suspended' };
-  const suspendedApproved = { _id: 't1', onboardingStep: 5, onboardingStatus: 'approved', status: 'Suspended' };
+  const suspendedApproved = { _id: 't1', isProfileActive: true, onboardingStep: 5, onboardingStatus: 'approved', status: 'Suspended' };
 
   assert.equal(resolvePostAuthRoute(rejected), '/onboarding-status');
   assert.equal(resolvePostAuthRoute(suspended), '/onboarding-status');
   assert.equal(resolvePostAuthRoute(suspendedApproved), '/onboarding-status');
   assert.equal(needsOnboarding(rejected), true);
   assert.equal(needsOnboarding(suspended), true);
+  assert.equal(needsOnboarding(suspendedApproved), true);
   assert.equal(isOnboardingPendingReview(rejected), true);
   assert.equal(isOnboardingPendingReview(suspended), true);
 });
 
-test('submitted experts wait on the status page', () => {
-  const pending = { _id: 't1', onboardingStep: 5, onboardingStatus: 'pending' };
+test('submitted and explicit pending experts wait on /onboarding-status while pre-normalized step < 5 resumes /onboarding', () => {
+  const pendingStep5 = { _id: 't1', onboardingStep: 5, onboardingStatus: 'pending' };
+  const pendingStep2 = { _id: 't1', onboardingStep: 2, onboardingStatus: 'pending' };
   const underReview = { _id: 't1', onboardingStep: 5, onboardingStatus: 'UNDER_REVIEW' };
-  assert.equal(isOnboardingPendingReview(pending as any), true);
-  assert.equal(resolvePostAuthRoute(pending), '/onboarding-status');
+  const rawPendingStep2 = { _id: 't1', onboardingStep: 2, status: 'Pending' };
+
+  assert.equal(isOnboardingPendingReview(pendingStep5 as any), true);
+  assert.equal(resolvePostAuthRoute(pendingStep5), '/onboarding-status');
+  assert.equal(resolvePostAuthRoute(pendingStep2), '/onboarding-status');
   assert.equal(resolvePostAuthRoute(underReview), '/onboarding-status');
+  assert.equal(resolvePostAuthRoute(rawPendingStep2), '/onboarding');
+
+  assert.equal(resolveOnboardingDisplayState(pendingStep2), 'pending');
+  assert.equal(resolveOnboardingDisplayState(rawPendingStep2), 'incomplete');
+});
+
+test('resolveOnboardingDisplayState resolves all 5 states and conflicting combinations consistently', () => {
+  assert.equal(resolveOnboardingDisplayState(null), 'pending');
+  assert.equal(resolveOnboardingDisplayState(undefined), 'pending');
+  assert.equal(
+    resolveOnboardingDisplayState({ _id: 't1', onboardingStatus: 'pending', onboardingStep: 5 }),
+    'pending'
+  );
+  assert.equal(
+    resolveOnboardingDisplayState({ _id: 't1', isProfileActive: true, onboardingStatus: 'under_review', onboardingStep: 5 }),
+    'pending'
+  );
+  assert.equal(
+    resolveOnboardingDisplayState({ _id: 't1', onboardingStatus: 'draft', incompleteChecklist: [] }),
+    'incomplete'
+  );
+  assert.equal(
+    resolveOnboardingDisplayState({
+      _id: 't1',
+      isProfileActive: true,
+      onboardingStatus: 'incomplete',
+      incompleteChecklist: [{ key: 'profilePhoto', status: 'pending' }],
+    }),
+    'incomplete'
+  );
+  assert.equal(
+    resolveOnboardingDisplayState({ _id: 't1', onboardingStatus: 'approved', status: 'Incomplete' }),
+    'incomplete'
+  );
+  assert.equal(
+    resolveOnboardingDisplayState({ _id: 't1', onboardingStatus: 'rejected', status: 'Rejected' }),
+    'rejected'
+  );
+  assert.equal(
+    resolveOnboardingDisplayState({ _id: 't1', onboardingStatus: 'suspended', status: 'Suspended' }),
+    'suspended'
+  );
+  assert.equal(
+    resolveOnboardingDisplayState({ _id: 't1', isProfileActive: true, onboardingStatus: 'approved', status: 'Suspended' }),
+    'suspended'
+  );
+  assert.equal(
+    resolveOnboardingDisplayState({ _id: 't1', isProfileActive: true, onboardingStep: 2 }),
+    'approved'
+  );
+  assert.equal(
+    resolveOnboardingDisplayState({ _id: 't1', onboardingStatus: 'approved', onboardingStep: 5 }),
+    'approved'
+  );
 });
 
 test('unauthenticated users route to /login', () => {

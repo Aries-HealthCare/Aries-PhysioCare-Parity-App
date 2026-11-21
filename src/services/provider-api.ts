@@ -487,19 +487,30 @@ class ProviderApiService {
     }
 
     const cleanMobile = (expert.phone || expert.mobileNo || fallbackPhone || '').replace(/\D/g, '').slice(-10);
-    const rawOnboardingStatus = String(expert.onboardingStatus || '').trim().toLowerCase();
-    const rawStatus = String(expert.status || '').trim().toLowerCase();
+    const normalizeExpertStatus = (value: unknown): string =>
+      String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/[\s-]+/g, '_');
+
+    const rawOnboardingStatus = normalizeExpertStatus(expert.onboardingStatus);
+    const rawStatus = normalizeExpertStatus(expert.status);
+    const hasChecklist =
+      Array.isArray(expert.incompleteChecklist) &&
+      expert.incompleteChecklist.filter(Boolean).length > 0;
     const isExplicitNonApproved =
-      ['incomplete', 'rejected', 'suspended', 'pending', 'under_review', 'under-review', 'in_progress', 'draft'].includes(
+      hasChecklist ||
+      ['incomplete', 'rejected', 'suspended', 'pending', 'under_review', 'in_progress', 'draft'].includes(
         rawOnboardingStatus
       ) ||
-      ['incomplete', 'rejected', 'suspended', 'pending', 'under_review', 'under-review', 'in_progress', 'draft'].includes(
+      ['incomplete', 'rejected', 'suspended', 'pending', 'under_review', 'in_progress', 'draft'].includes(
         rawStatus
       );
     const hasCompleted =
       !isExplicitNonApproved &&
-      (expert.onboardingStatus === 'completed' ||
+      (rawOnboardingStatus === 'completed' ||
         rawOnboardingStatus === 'approved' ||
+        rawOnboardingStatus === 'active' ||
         rawStatus === 'approved' ||
         rawStatus === 'active' ||
         expert.isProfileActive === true);
@@ -630,11 +641,15 @@ class ProviderApiService {
       isOnboardingPaid: Boolean(expert.isOnboardingPaid ?? expert.isPaid),
       isFeeWaived: Boolean(expert.isFeeWaived ?? expert.feeWaived),
       paymentStatus: typeof expert.paymentStatus === 'string' ? expert.paymentStatus : undefined,
-      isTherapistActive: expert.isTherapistActive ?? expert.isProfileActive ?? false,
+      isTherapistActive: !isExplicitNonApproved && (expert.isTherapistActive ?? expert.isProfileActive ?? false),
       isProfileActive:
-        expert.isProfileActive ??
-        (!isExplicitNonApproved &&
-          (rawStatus === 'approved' || rawStatus === 'active' || rawOnboardingStatus === 'approved')),
+        !isExplicitNonApproved &&
+        (expert.isProfileActive ??
+          (rawStatus === 'approved' ||
+            rawStatus === 'active' ||
+            rawOnboardingStatus === 'approved' ||
+            rawOnboardingStatus === 'active' ||
+            rawOnboardingStatus === 'completed')),
       rating: expert.rating || expert.averageRating || 0,
       totalReviews: expert.totalReviews || expert.reviewCount || 0,
       walletAmount: expert.walletAmount ?? expert.walletBalance ?? 0,

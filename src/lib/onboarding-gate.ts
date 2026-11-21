@@ -30,6 +30,8 @@ const NON_APPROVED_STATUSES = new Set([
   'incomplete',
   'draft',
   'in_progress',
+  'rejected',
+  'suspended',
 ]);
 
 function isApprovedUser(
@@ -37,12 +39,17 @@ function isApprovedUser(
   obStatus: string,
   accStatus: string
 ): boolean {
+  if (hasChecklistItems(user)) return false;
+  if (NON_APPROVED_STATUSES.has(obStatus) || NON_APPROVED_STATUSES.has(accStatus)) {
+    return false;
+  }
   if (user.isProfileActive === true) return true;
-  if (obStatus === 'approved' || obStatus === 'active') return true;
-  if (obStatus === 'completed' && !NON_APPROVED_STATUSES.has(accStatus)) return true;
   if (
-    (accStatus === 'approved' || accStatus === 'active') &&
-    !NON_APPROVED_STATUSES.has(obStatus)
+    obStatus === 'approved' ||
+    obStatus === 'active' ||
+    obStatus === 'completed' ||
+    accStatus === 'approved' ||
+    accStatus === 'active'
   ) {
     return true;
   }
@@ -70,15 +77,15 @@ export function resolvePostAuthRoute(
     return '/onboarding-status';
   }
 
-  if (isApprovedUser(user, obStatus, accStatus)) {
-    return '/app';
-  }
-
   if (hasChecklistItems(user)) {
     return '/onboarding-status';
   }
 
-  if (obStatus === 'under_review' || accStatus === 'under_review') {
+  if (isApprovedUser(user, obStatus, accStatus)) {
+    return '/app';
+  }
+
+  if (obStatus === 'pending' || obStatus === 'under_review' || accStatus === 'under_review') {
     return '/onboarding-status';
   }
 
@@ -90,11 +97,10 @@ export function resolvePostAuthRoute(
     accStatus === 'draft' ||
     accStatus === 'in_progress'
   ) {
+    if (obStatus === 'approved' || obStatus === 'active' || obStatus === 'completed') {
+      return '/onboarding-status';
+    }
     return (user.onboardingStep ?? 0) >= 5 ? '/onboarding-status' : '/onboarding';
-  }
-
-  if (obStatus === 'pending' && user.onboardingStep === undefined) {
-    return '/onboarding-status';
   }
 
   return (user.onboardingStep ?? 0) >= 5 ? '/onboarding-status' : '/onboarding';
@@ -113,10 +119,10 @@ export function resolveOnboardingDisplayState(
 
   if (obStatus === 'rejected' || accStatus === 'rejected') return 'rejected';
   if (obStatus === 'suspended' || accStatus === 'suspended') return 'suspended';
+  if (hasChecklistItems(user)) return 'incomplete';
   if (isApprovedUser(user, obStatus, accStatus)) return 'approved';
 
   if (
-    hasChecklistItems(user) ||
     obStatus === 'incomplete' ||
     obStatus === 'draft' ||
     obStatus === 'in_progress' ||
@@ -124,6 +130,10 @@ export function resolveOnboardingDisplayState(
     accStatus === 'draft' ||
     accStatus === 'in_progress'
   ) {
+    return 'incomplete';
+  }
+
+  if (!obStatus && accStatus === 'pending' && (user.onboardingStep ?? 0) < 5) {
     return 'incomplete';
   }
 
