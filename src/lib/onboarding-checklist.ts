@@ -138,6 +138,24 @@ export function extractDocUrl(val: unknown): string {
 }
 
 /**
+ * Extracts a human-readable filename from a `{ name, url }` document object or plain URL.
+ */
+export function extractDocName(val: unknown, fallback = 'Uploaded_Document'): string {
+  if (val && typeof val === 'object' && !Array.isArray(val)) {
+    const record = val as Record<string, unknown>;
+    if (typeof record.name === 'string' && record.name.trim().length > 0) {
+      return record.name.trim();
+    }
+  }
+  const url = extractDocUrl(val);
+  if (url) {
+    const lastSegment = url.split('?')[0]?.split('/').pop()?.trim();
+    if (lastSegment) return lastSegment;
+  }
+  return fallback;
+}
+
+/**
  * Canonical onboarding fee settlement check matching ariesxpert-backend:
  * paid flag, legacy pre-2026 signup, or explicit waiver/exempt status.
  */
@@ -221,4 +239,159 @@ export function getNextPendingStep(items: ParityChecklistItem[]): number {
     .map((item) => item.step);
   if (pendingSteps.length === 0) return 4;
   return Math.min(...pendingSteps);
+}
+
+/**
+ * Guards server hydration in the onboarding wizard so async `user._id` arrival hydrates
+ * cleanly after an initial `null` render, while duplicate renders for the same user ID do not
+ * clobber in-progress form edits.
+ */
+export function shouldHydrateFromServerDraft(
+  user: { _id?: string | null; id?: string | null } | null | undefined,
+  hydratedUserId: string | null | undefined
+): boolean {
+  if (!user || typeof user !== 'object') return false;
+  const userId =
+    (typeof user._id === 'string' && user._id.trim()) ||
+    (typeof user.id === 'string' && user.id.trim()) ||
+    '';
+  if (!userId) return false;
+  return hydratedUserId !== userId;
+}
+
+/**
+ * Returns true when an account is in `incomplete` / checklist-resubmission state so stale
+ * `localStorage` draft step numbers never override server status or `?step=` deep links.
+ */
+export function shouldSkipLocalDraftStepOverride(
+  user:
+    | {
+        onboardingStatus?: string | null;
+        status?: string | null;
+        incompleteChecklist?: unknown[] | null;
+      }
+    | null
+    | undefined
+): boolean {
+  if (!user || typeof user !== 'object') return false;
+  const obStatus = String(user.onboardingStatus || '').trim().toLowerCase();
+  const accStatus = String(user.status || '').trim().toLowerCase();
+  if (obStatus === 'incomplete' || accStatus === 'incomplete') return true;
+  return Array.isArray(user.incompleteChecklist) && user.incompleteChecklist.filter(Boolean).length > 0;
+}
+
+/**
+ * Marks all checklist items belonging to `step` as `'resubmitted'` without mutating inputs.
+ */
+export function markParityStepResubmitted(
+  items: ParityChecklistItem[],
+  step: number
+): ParityChecklistItem[] {
+  if (!Array.isArray(items)) return [];
+  return items.map((item) =>
+    item && item.step === step ? { ...item, status: 'resubmitted' } : item
+  );
+}
+
+/**
+ * Parses `?step=N&focus=<key>` from `window.location.search` safely for 0-based steps `0..4`.
+ */
+export function parseOnboardingQueryParams(search: string): {
+  step: number | null;
+  focusKey: string | null;
+} {
+  const params = new URLSearchParams(search || '');
+  const rawStep = params.get('step');
+  let step: number | null = null;
+  if (rawStep !== null && rawStep.trim() !== '') {
+    const parsed = Number(rawStep);
+    if (Number.isFinite(parsed)) {
+      step = Math.max(0, Math.min(4, Math.trunc(parsed)));
+    }
+  }
+  const rawFocus = params.get('focus');
+  const focusKey = rawFocus && rawFocus.trim().length > 0 ? rawFocus.trim() : null;
+  return { step, focusKey };
+}
+
+export interface ParsedSubmitForReviewError {
+  code: 'INCOMPLETE_ITEMS_PENDING' | 'REGISTRATION_FEE_REQUIRED' | null;
+  message: string;
+  targetStep: number | null;
+}
+
+/**
+ * Parses `submitForReview` errors (including `ApiError` from `api-transport.ts` which preserves
+ * `statusCode` and `message`, as well as optional `code` / `pendingItems` payloads) and resolves
+ * the 0-based onboarding step to jump back to.
+ */
+export function parseSubmitForReviewError(
+  err: unknown,
+  checklist: ParityChecklistItem[]
+): ParsedSubmitForReviewError {
+  const errRecord = err && typeof err === 'object' ? (err as Record<string, unknown>) : {};
+  const rawMessage =
+    typeof errRecord.message === 'string' && errRecord.message.trim().length > 0
+      ? errRecord.message.trim()
+      : '';
+  const rawCode =
+    typeof errRecord.code === 'string' ? errRecord.code.trim().toUpperCase() : '';
+
+  if (
+    rawCode === 'REGISTRATION_FEE_REQUIRED' ||
+    /registration fee|REGISTRATION_FEE_REQUIRED/i.test(rawMessage)
+  ) {
+    return {
+      code: 'REGISTRATION_FEE_REQUIRED',
+      message:
+        rawMessage || 'Please complete the registration fee payment before resubmitting.',
+      targetStep: 4,
+    };
+  }
+
+  if (
+    rawCode === 'INCOMPLETE_ITEMS_PENDING' ||
+    /flagged sections|before resubmitting|INCOMPLETE_ITEMS_PENDING/i.test(rawMessage)
+  ) {
+    const rawPending = Array.isArray(errRecord.pendingItems) ? errRecord.pendingItems : [];
+    const payloadSteps = rawPending
+      .map((entry) =>
+        entry && typeof entry === 'object'
+          ? Number((entry as Record<string, unknown>).step)
+          : Number.NaN
+      )
+      .filter((s) => Number.isFinite(s) && s >= 0 && s <= 4);
+
+    let targetStep: number;
+    if (payloadSteps.length > 0) {
+      targetStep = Math.min(...payloadSteps);
+    } else {
+      const pendingNonFeeSteps = (Array.isArray(checklist) ? checklist : [])
+        .filter((item) => item && item.key !== 'registrationFee' && item.status !== 'resubmitted')
+        .map((item) => item.step)
+        .filter((s) => Number.isFinite(s) && s >= 0 && s <= 4);
+      if (pendingNonFeeSteps.length > 0) {
+        targetStep = Math.min(...pendingNonFeeSteps);
+      } else {
+        const allNonFeeSteps = (Array.isArray(checklist) ? checklist : [])
+          .filter((item) => item && item.key !== 'registrationFee')
+          .map((item) => item.step)
+          .filter((s) => Number.isFinite(s) && s >= 0 && s <= 4);
+        targetStep = allNonFeeSteps.length > 0 ? Math.min(...allNonFeeSteps) : 0;
+      }
+    }
+
+    return {
+      code: 'INCOMPLETE_ITEMS_PENDING',
+      message: rawMessage || 'Please update all flagged sections before resubmitting.',
+      targetStep,
+    };
+  }
+
+  return {
+    code: null,
+    message:
+      rawMessage || 'Something went wrong while updating your profile. Please try again.',
+    targetStep: null,
+  };
 }

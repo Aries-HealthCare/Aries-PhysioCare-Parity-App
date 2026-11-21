@@ -42,11 +42,29 @@ import {
   Clock,
   Zap,
   Lock,
+  AlertTriangle,
+  ArrowRight,
+  ClipboardCheck,
+  MessageSquareText,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { LegalPoliciesModal } from '@/components/legal-policies-modal';
+import {
+  ONBOARDING_STEP_TITLES,
+  extractDocName,
+  extractDocUrl,
+  getNextPendingStep,
+  isFeeSettled,
+  markParityStepResubmitted,
+  normalizeChecklist,
+  parseOnboardingQueryParams,
+  parseSubmitForReviewError,
+  shouldHydrateFromServerDraft,
+  shouldSkipLocalDraftStepOverride,
+  type ParityChecklistItem,
+} from '@/lib/onboarding-checklist';
 
 // ── Mobile App Exact Stepper ────────────────────────────
 const STEPS = [
@@ -342,7 +360,7 @@ const TIME_PREFERENCE_OPTIONS = [
 ];
 
 export default function ProviderOnboardingPage() {
-  const { user, updateUserData } = useProviderAuth();
+  const { user, isLoading, updateUserData, refreshProfile } = useProviderAuth();
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -352,6 +370,12 @@ export default function ProviderOnboardingPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+
+  // ── Resubmission / Incomplete Checklist State ────────
+  const [checklistItems, setChecklistItems] = useState<ParityChecklistItem[]>([]);
+  const [incompleteNote, setIncompleteNote] = useState('');
+  const [focusedChecklistKey, setFocusedChecklistKey] = useState<string | null>(null);
+  const localResubmittedKeysRef = useRef<Set<string>>(new Set());
 
   // ── Global Country & Profile Photo ───────────────────
   const [selectedCountry, setSelectedCountry] = useState('India');
@@ -363,17 +387,17 @@ export default function ProviderOnboardingPage() {
   // ── Step 1: Personal Details ─────────────────────────
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
-  const [fullName, setFullName] = useState(user?.fullName || user?.name || '');
-  const [gender, setGender] = useState(user?.gender || 'Male');
-  const [dob, setDob] = useState(user?.dob || '');
-  const [email, setEmail] = useState(user?.email || '');
-  const [phone, setPhone] = useState(user?.phone || user?.mobileNo || '');
+  const [fullName, setFullName] = useState('');
+  const [gender, setGender] = useState('Male');
+  const [dob, setDob] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [streetAddress, setStreetAddress] = useState(user?.streetAddress || '');
+  const [streetAddress, setStreetAddress] = useState('');
   const [addressLineTwo, setAddressLineTwo] = useState('');
-  const [zipCode, setZipCode] = useState(user?.zipCode || '');
-  const [city, setCity] = useState(user?.city || 'Mumbai');
-  const [stateVal, setStateVal] = useState(user?.state || 'Maharashtra');
+  const [zipCode, setZipCode] = useState('');
+  const [city, setCity] = useState('');
+  const [stateVal, setStateVal] = useState('');
   const [area, setArea] = useState('');
 
   // Dynamic Country ID Document Text & Upload State
@@ -386,7 +410,7 @@ export default function ProviderOnboardingPage() {
   const [specializations, setSpecializations] = useState<string[]>(['Musculoskeletal', 'Neurological']);
   const [certifications, setCertifications] = useState<string[]>(['Taping', 'Dry Needling']);
   const [yearOfExperience, setYearOfExperience] = useState('3–5 Years');
-  const [licenseNumber, setLicenseNumber] = useState(user?.licenseNumber || '');
+  const [licenseNumber, setLicenseNumber] = useState('');
   const [councilName, setCouncilName] = useState('');
   const [currentlyWorking, setCurrentlyWorking] = useState(false);
   const [currentlyWorkingAt, setCurrentlyWorkingAt] = useState('');
@@ -405,7 +429,7 @@ export default function ProviderOnboardingPage() {
   const [businessName, setBusinessName] = useState('');
   const [bankFieldValues, setBankFieldValues] = useState<Record<string, string>>({
     bankName: '',
-    accountHolderName: user?.fullName || '',
+    accountHolderName: '',
     accountNumber: '',
     ifscCode: '',
     upiId: '',
@@ -414,9 +438,9 @@ export default function ProviderOnboardingPage() {
   const [bankDoc, setBankDoc] = useState<{ file?: File; url?: string; name: string } | null>(null);
 
   // ── Step 4: Service Territory & Travel ───────────────
-  const [serviceCity, setServiceCity] = useState(user?.city || 'Mumbai');
-  const [serviceAreas, setServiceAreas] = useState<string[]>(['Bandra West', 'Andheri West', 'Juhu', 'Khar']);
-  const [targetPincodes, setTargetPincodes] = useState<string[]>(['400050', '400053', '400058']);
+  const [serviceCity, setServiceCity] = useState('');
+  const [serviceAreas, setServiceAreas] = useState<string[]>([]);
+  const [targetPincodes, setTargetPincodes] = useState<string[]>([]);
   const [newPincode, setNewPincode] = useState('');
   const [newArea, setNewArea] = useState('');
   const [serviceRadius, setServiceRadius] = useState(12);
@@ -453,78 +477,328 @@ export default function ProviderOnboardingPage() {
   const [pendingFeeOrderId, setPendingFeeOrderId] = useState<string | null>(null);
   const [isSubmittedSuccess, setIsSubmittedSuccess] = useState(false);
 
-  // ── Pre-fill on Mount & Hydrate from Session (Run strictly once) ──
-  const hasHydratedRef = useRef(false);
+  // ── Hydrate asynchronously when `user._id` arrives (never lock on `null`) ──
+  const hydratedUserIdRef = useRef<string | null>(null);
+  const hasLoadedLocalDraftRef = useRef(false);
 
-  useEffect(() => {
-    if (typeof window === 'undefined' || hasHydratedRef.current) return;
-    hasHydratedRef.current = true;
-
-    if (user) {
-      if (user.fullName) {
-        setFullName(user.fullName);
-        const parts = user.fullName.trim().split(' ');
+  const applyLocalDraftDefaults = (
+    rawDraft: string | null,
+    opts: {
+      skipStepOverride: boolean;
+      queryStep: number | null;
+      hasCountry: boolean;
+      hasPhoto: boolean;
+      hasFullName: boolean;
+      hasPhone: boolean;
+      hasEmail: boolean;
+      hasCity: boolean;
+      hasState: boolean;
+      hasServiceCity: boolean;
+      hasLicense: boolean;
+      hasPincodes: boolean;
+      hasAreas: boolean;
+      hasBankAccount: boolean;
+      serverOnboardingStep?: number;
+    }
+  ) => {
+    if (!rawDraft) return;
+    try {
+      const d = JSON.parse(rawDraft);
+      if (d.selectedCountry && COUNTRY_CONFIGS[d.selectedCountry] && !opts.hasCountry) {
+        setSelectedCountry(d.selectedCountry);
+      }
+      if (d.profilePhotoUrl && !opts.hasPhoto) {
+        setProfilePhotoUrl(extractDocUrl(d.profilePhotoUrl));
+      }
+      if (!opts.skipStepOverride && opts.queryStep === null) {
+        if (d.maxUnlockedStep !== undefined && typeof d.maxUnlockedStep === 'number') {
+          const clampedMax = Math.max(0, Math.min(4, Math.trunc(d.maxUnlockedStep)));
+          setMaxUnlockedStep((prev) => Math.max(prev, clampedMax));
+        }
+        if (
+          d.currentStep !== undefined &&
+          typeof d.currentStep === 'number' &&
+          (opts.serverOnboardingStep === undefined || opts.serverOnboardingStep === 0)
+        ) {
+          const allowedMax = Math.max(
+            typeof opts.serverOnboardingStep === 'number' ? opts.serverOnboardingStep : 0,
+            typeof d.maxUnlockedStep === 'number' ? Math.min(4, d.maxUnlockedStep) : 0
+          );
+          setCurrentStep(Math.max(0, Math.min(allowedMax, Math.trunc(d.currentStep))));
+        }
+      }
+      if (d.fullName && !opts.hasFullName) {
+        setFullName(d.fullName);
+        const parts = String(d.fullName).trim().split(/\s+/);
         if (parts.length > 0) {
           setFirstName(parts[0]);
           setLastName(parts.slice(1).join(' '));
         }
       }
-      if (user.email) setEmail(user.email);
-      if (user.phone) setPhone(user.phone);
-      if (user.city) {
-        setCity(user.city);
-        setServiceCity(user.city);
+      if (d.phone && !opts.hasPhone) setPhone(d.phone);
+      if (d.email && !opts.hasEmail) setEmail(d.email);
+      if (d.city && !opts.hasCity) setCity(d.city);
+      if (d.stateVal && !opts.hasState) setStateVal(d.stateVal);
+      if (d.serviceCity && !opts.hasServiceCity) setServiceCity(d.serviceCity);
+      if (d.licenseNumber && !opts.hasLicense) setLicenseNumber(d.licenseNumber);
+      if (Array.isArray(d.targetPincodes) && d.targetPincodes.length > 0 && !opts.hasPincodes) {
+        setTargetPincodes(d.targetPincodes);
       }
-      if (user.state) setStateVal(user.state);
-      if (user.zipCode) setZipCode(user.zipCode);
-      if (user.streetAddress) setStreetAddress(user.streetAddress);
-      if (user.addressLineTwo) setAddressLineTwo(user.addressLineTwo);
-      if (user.gender) setGender(user.gender);
-      if (user.dob) setDob(user.dob);
-      if (user.countryName && COUNTRY_CONFIGS[user.countryName]) setSelectedCountry(user.countryName);
+      if (Array.isArray(d.serviceAreas) && d.serviceAreas.length > 0 && !opts.hasAreas) {
+        setServiceAreas(d.serviceAreas);
+      }
+      if (d.bankFieldValues && !opts.hasBankAccount) {
+        setBankFieldValues((prev) => ({ ...prev, ...d.bankFieldValues }));
+      }
+    } catch {
+      /* ignore corrupt local draft */
+    }
+  };
 
-      if (user.profilePhoto || user.profileImageUrl) {
-        setProfilePhotoUrl(user.profilePhoto || user.profileImageUrl || '');
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const { step: queryStep, focusKey: queryFocus } = parseOnboardingQueryParams(
+      window.location.search
+    );
+
+    if (shouldHydrateFromServerDraft(user, hydratedUserIdRef.current)) {
+      hydratedUserIdRef.current = user?._id || user?.id || null;
+
+      const resolvedFullName = (
+        user?.fullName ||
+        user?.name ||
+        [user?.firstName, user?.lastName].filter(Boolean).join(' ')
+      ).trim();
+      if (resolvedFullName) setFullName(resolvedFullName);
+
+      if (user?.firstName) {
+        setFirstName(user.firstName);
+      } else if (resolvedFullName) {
+        setFirstName(resolvedFullName.split(/\s+/)[0] || '');
+      }
+      if (user?.lastName) {
+        setLastName(user.lastName);
+      } else if (resolvedFullName) {
+        setLastName(resolvedFullName.split(/\s+/).slice(1).join(' '));
+      }
+
+      if (user?.email) {
+        setEmail(user.email);
+        setIsEmailVerified(true);
+      }
+      if (user?.phone || user?.mobileNo) {
+        setPhone(user.phone || user.mobileNo || '');
+        setIsMobileVerified(true);
+      }
+      if (user?.city) setCity(user.city);
+      if (user?.areaOfServiceInfo?.city || user?.city) {
+        setServiceCity(user.areaOfServiceInfo?.city || user.city || '');
+      }
+      if (user?.state) setStateVal(user.state);
+      if (user?.area) setArea(user.area);
+      if (user?.zipCode) setZipCode(user.zipCode);
+      if (user?.streetAddress) setStreetAddress(user.streetAddress);
+      if (user?.addressLineTwo) setAddressLineTwo(user.addressLineTwo);
+      if (user?.gender) {
+        const g = String(user.gender).trim().toLowerCase();
+        if (g === 'female') setGender('Female');
+        else if (g === 'other') setGender('Other');
+        else if (g === 'male') setGender('Male');
+        else setGender(user.gender);
+      }
+      if (user?.dob) setDob(user.dob);
+      if (user?.countryName && COUNTRY_CONFIGS[user.countryName]) {
+        setSelectedCountry(user.countryName);
+      }
+
+      const hydratedPhotoUrl =
+        extractDocUrl(user?.profilePhoto) ||
+        extractDocUrl(user?.profileImageUrl) ||
+        extractDocUrl(user?.profileImage);
+      if (hydratedPhotoUrl) {
+        setProfilePhotoUrl(hydratedPhotoUrl);
+      }
+
+      // Identification text & uploaded KYC documents
+      setIdTextValues((prev) => ({
+        ...prev,
+        ...(user?.aadharNumber ? { aadharNumber: user.aadharNumber } : {}),
+        ...(user?.nationalInsuranceNumber
+          ? { nationalInsuranceNumber: user.nationalInsuranceNumber }
+          : {}),
+        ...(user?.ssnNumber ? { ssnNumber: user.ssnNumber } : {}),
+      }));
+
+      const nextIdDocs: Record<string, { file?: File; url?: string; name: string }> = {};
+      const aadharFrontRaw = user?.aadharCardUrl ?? user?.aadharCard;
+      const aadharFrontUrl = extractDocUrl(aadharFrontRaw);
+      if (aadharFrontUrl) {
+        nextIdDocs.aadharCard = {
+          url: aadharFrontUrl,
+          name: extractDocName(aadharFrontRaw, 'Aadhaar_Front'),
+        };
+      }
+      const aadharBackRaw = user?.aadharCardBackUrl ?? user?.aadharCardBack;
+      const aadharBackUrl = extractDocUrl(aadharBackRaw);
+      if (aadharBackUrl) {
+        nextIdDocs.aadharCardBack = {
+          url: aadharBackUrl,
+          name: extractDocName(aadharBackRaw, 'Aadhaar_Back'),
+        };
+      }
+      // `normalizeExpertProfile` mirrors `bankInfo.panNumber` into `panCard` when no PAN image exists
+      const rawPanField = user?.panCardUrl ?? user?.panCard;
+      const panCandidateUrl = extractDocUrl(rawPanField);
+      const isLikelyPanText =
+        !user?.panCardUrl &&
+        typeof rawPanField === 'string' &&
+        (rawPanField === user?.bankInfo?.panNumber ||
+          /^[A-Z]{5}[0-9]{4}[A-Z]$/i.test(rawPanField.trim()));
+      if (panCandidateUrl && !isLikelyPanText) {
+        nextIdDocs.panCard = {
+          url: panCandidateUrl,
+          name: extractDocName(rawPanField, 'PAN_Card'),
+        };
+      }
+      const extraCountryDocs: Array<[string, unknown, string]> = [
+        ['passportOrBrp', user?.passportOrBrpUrl ?? (user as any)?.passportOrBrp, 'Passport_BRP'],
+        ['personalausweis', user?.personalausweisUrl ?? (user as any)?.personalausweis, 'Personalausweis'],
+        ['anmeldungDocument', user?.anmeldungDocumentUrl ?? (user as any)?.anmeldungDocument, 'Anmeldung'],
+        ['emiratesId', user?.emiratesIdUrl ?? (user as any)?.emiratesId, 'Emirates_ID'],
+        ['passportVisa', user?.passportVisaUrl ?? (user as any)?.passportVisa, 'Passport_Visa'],
+        ['governmentPhotoId', user?.governmentPhotoIdUrl ?? (user as any)?.governmentPhotoId, 'Government_ID'],
+        ['driversLicense', (user as any)?.driversLicenseUrl ?? (user as any)?.driversLicense, 'Drivers_License'],
+      ];
+      for (const [key, rawVal, fallbackLabel] of extraCountryDocs) {
+        const resolved = extractDocUrl(rawVal);
+        if (resolved) {
+          nextIdDocs[key] = {
+            url: resolved,
+            name: extractDocName(rawVal, fallbackLabel),
+          };
+        }
+      }
+      if (Object.keys(nextIdDocs).length > 0) {
+        setIdDocFiles((prev) => ({ ...prev, ...nextIdDocs }));
       }
 
       // Professional Info
-      if (user.licenseNumber) setLicenseNumber(user.licenseNumber);
-      if (user.specialization) setQualification(user.specialization);
-      if (user.yearsOfExperience) setYearOfExperience(user.yearsOfExperience);
-      if (user.professionalInfo) {
-        if (user.professionalInfo.professionalRole) setProfessionalRole(user.professionalInfo.professionalRole);
-        if (user.professionalInfo.qualification) setQualification(user.professionalInfo.qualification);
-        if (user.professionalInfo.specializations) setSpecializations(user.professionalInfo.specializations);
-        if (user.professionalInfo.currentlyWorkingAt) {
+      if (user?.licenseNumber) setLicenseNumber(user.licenseNumber);
+      if (user?.designation && ROLE_DETAILS_CONFIG[user.designation]) {
+        setProfessionalRole(user.designation);
+      }
+      if (user?.qualification) setQualification(user.qualification);
+      else if (user?.specialization) setQualification(user.specialization);
+      if (user?.yearsOfExperience) setYearOfExperience(String(user.yearsOfExperience));
+
+      const pInfo = user?.professionalInfo;
+      if (pInfo) {
+        if (pInfo.professionalRole && ROLE_DETAILS_CONFIG[pInfo.professionalRole]) {
+          setProfessionalRole(pInfo.professionalRole);
+        }
+        if (pInfo.qualification) setQualification(pInfo.qualification);
+        if (Array.isArray(pInfo.specializations) && pInfo.specializations.length > 0) {
+          setSpecializations(pInfo.specializations);
+        }
+        if (pInfo.yearOfExperience) setYearOfExperience(String(pInfo.yearOfExperience));
+        if ((pInfo as any).councilName || (user as any)?.councilName) {
+          setCouncilName(String((pInfo as any).councilName || (user as any).councilName));
+        }
+        if (pInfo.currentlyWorkingAt && pInfo.currentlyWorkingAt !== 'No') {
           setCurrentlyWorking(true);
-          setCurrentlyWorkingAt(user.professionalInfo.currentlyWorkingAt);
+          setCurrentlyWorkingAt(pInfo.currentlyWorkingAt);
         }
-        if (user.professionalInfo.hasOwnClinic) {
+        if (Array.isArray(pInfo.serviceTypes) && pInfo.serviceTypes.length > 0) {
+          setServiceTypes(pInfo.serviceTypes);
+        }
+        if (pInfo.hasModalities !== undefined) {
+          setHasModalities(Boolean(pInfo.hasModalities));
+        }
+        if (pInfo.hasOwnClinic) {
           setHasOwnClinic(true);
-          setClinicName(user.professionalInfo.clinicName || '');
-          setClinicEstablishmentYear(user.professionalInfo.clinicEstablishmentYear || '2020');
-        }
-        if (user.professionalInfo.registrationCertificate) {
-          setProfDocs((prev) => ({
-            ...prev,
-            regCert: { url: user.professionalInfo?.registrationCertificate, name: 'Council_Registration.pdf' },
-          }));
-        }
-        if (user.professionalInfo.degreeCertificate) {
-          setProfDocs((prev) => ({
-            ...prev,
-            degreeCert: { url: user.professionalInfo?.degreeCertificate, name: 'Degree_Certificate.pdf' },
-          }));
+          setClinicName(pInfo.clinicName || '');
+          setClinicEstablishmentMonth(pInfo.clinicEstablishmentMonth || 'January');
+          setClinicEstablishmentYear(pInfo.clinicEstablishmentYear || '2020');
         }
       }
 
+      const nextProfDocs: Record<string, { file?: File; url?: string; name: string }> = {};
+      const regCertRaw =
+        pInfo?.registrationCertificate ??
+        user?.registrationCertificateUrl ??
+        (user as any)?.registrationCertificate;
+      const regCertUrl = extractDocUrl(regCertRaw);
+      if (regCertUrl) {
+        nextProfDocs.regCert = {
+          url: regCertUrl,
+          name: extractDocName(regCertRaw, 'Council_Registration.pdf'),
+        };
+      }
+      const degCertRaw =
+        pInfo?.degreeCertificate ??
+        user?.degreeCertificateUrl ??
+        (user as any)?.degreeCertificate;
+      const degCertUrl = extractDocUrl(degCertRaw);
+      if (degCertUrl) {
+        nextProfDocs.degreeCert = {
+          url: degCertUrl,
+          name: extractDocName(degCertRaw, 'Degree_Certificate.pdf'),
+        };
+      }
+      const cvRaw = pInfo?.cvResume ?? user?.cvResumeUrl ?? (user as any)?.cvResume;
+      const cvUrl = extractDocUrl(cvRaw);
+      if (cvUrl) {
+        nextProfDocs.cvResume = {
+          url: cvUrl,
+          name: extractDocName(cvRaw, 'CV_Resume.pdf'),
+        };
+      }
+      if (Object.keys(nextProfDocs).length > 0) {
+        setProfDocs((prev) => ({ ...prev, ...nextProfDocs }));
+      }
+
+      const rawExtraCerts = Array.isArray(pInfo?.extraCertifications)
+        ? pInfo.extraCertifications
+        : Array.isArray(user?.extraCertificationsUrls)
+          ? user.extraCertificationsUrls
+          : [];
+      const hydratedExtraDocList: {
+        id: string;
+        label: string;
+        file?: File;
+        name?: string;
+        url?: string;
+      }[] = [];
+      const hydratedCertChips: string[] = [];
+      rawExtraCerts.forEach((entry, idx) => {
+        const entryUrl = extractDocUrl(entry);
+        if (entryUrl && (/^https?:\/\//i.test(entryUrl) || entryUrl.startsWith('/'))) {
+          hydratedExtraDocList.push({
+            id: `hydrated_${idx}`,
+            label:
+              typeof entry === 'object' && entry && 'name' in entry && entry.name
+                ? String(entry.name)
+                : `Certification ${idx + 1}`,
+            name: extractDocName(entry, `Certification_${idx + 1}.pdf`),
+            url: entryUrl,
+          });
+        } else if (typeof entry === 'string' && entry.trim()) {
+          hydratedCertChips.push(entry.trim());
+        }
+      });
+      if (hydratedExtraDocList.length > 0) setExtraCertDocs(hydratedExtraDocList);
+      if (hydratedCertChips.length > 0) setCertifications(hydratedCertChips);
+
       // Bank Info
-      if (user.bankInfo) {
-        if (user.bankInfo.accountType) setAccountType(user.bankInfo.accountType);
+      if (user?.bankInfo) {
+        if (user.bankInfo.accountType) {
+          setAccountType(user.bankInfo.accountType === 'Current' ? 'Current' : 'Savings');
+        }
         if (user.bankInfo.businessName) setBusinessName(user.bankInfo.businessName);
         setBankFieldValues({
           bankName: user.bankInfo.bankName || '',
-          accountHolderName: user.bankInfo.accountHolderName || user.fullName || '',
+          accountHolderName: user.bankInfo.accountHolderName || resolvedFullName || '',
           accountNumber: user.bankInfo.accountNumber || '',
           ifscCode: user.bankInfo.ifscCode || '',
           upiId: user.bankInfo.upiId || '',
@@ -533,60 +807,228 @@ export default function ProviderOnboardingPage() {
           routingNumber: (user.bankInfo as any).routingNumber || '',
           transitNumber: (user.bankInfo as any).transitNumber || '',
           institutionNumber: (user.bankInfo as any).institutionNumber || '',
+          sinNumber: (user.bankInfo as any).sinNumber || '',
+          utrNumber: (user.bankInfo as any).utrNumber || '',
+          ssnEinNumber: (user.bankInfo as any).ssnEinNumber || '',
+          taxId: (user.bankInfo as any).taxId || '',
+        });
+      } else if (resolvedFullName) {
+        setBankFieldValues((prev) => ({
+          ...prev,
+          accountHolderName: prev.accountHolderName || resolvedFullName,
+        }));
+      }
+
+      const bankChequeRaw =
+        user?.bankInfo?.cancelledCheque ??
+        user?.bankCancelledChequeUrl ??
+        (user as any)?.cancelledCheque ??
+        user?.bankInfo?.bankStatement ??
+        user?.bankStatementUrl ??
+        user?.bankInfo?.bankVerificationLetter ??
+        user?.bankVerificationLetterUrl;
+      const bankChequeUrl = extractDocUrl(bankChequeRaw);
+      if (bankChequeUrl) {
+        setBankDoc({
+          url: bankChequeUrl,
+          name: extractDocName(bankChequeRaw, 'Cancelled_Cheque.pdf'),
         });
       }
 
       // Territory
-      if (user.targetPincodes && user.targetPincodes.length > 0) setTargetPincodes(user.targetPincodes);
-      if (user.serviceAreas && user.serviceAreas.length > 0) setServiceAreas(user.serviceAreas);
-      if (user.areaOfServiceInfo) {
+      const hydratedPincodes = user?.areaOfServiceInfo?.targetPincodes?.length
+        ? user.areaOfServiceInfo.targetPincodes
+        : user?.targetPincodes?.length
+          ? user.targetPincodes
+          : user?.servicePincodes?.length
+            ? user.servicePincodes
+            : [];
+      if (hydratedPincodes.length > 0) setTargetPincodes(hydratedPincodes);
+
+      const hydratedAreas = user?.areaOfServiceInfo?.serviceAreas?.length
+        ? user.areaOfServiceInfo.serviceAreas
+        : user?.serviceAreas?.length
+          ? user.serviceAreas
+          : [];
+      if (hydratedAreas.length > 0) setServiceAreas(hydratedAreas);
+
+      if (user?.areaOfServiceInfo) {
         if (user.areaOfServiceInfo.commuteType) setCommuteType(user.areaOfServiceInfo.commuteType);
         if (user.areaOfServiceInfo.serviceRadius) setServiceRadius(user.areaOfServiceInfo.serviceRadius);
-        if (user.areaOfServiceInfo.drivingLicenseNumber) setDrivingLicenseNumber(user.areaOfServiceInfo.drivingLicenseNumber);
+        if (user.areaOfServiceInfo.maxDistance) setMaxDistancePerVisit(user.areaOfServiceInfo.maxDistance);
+        if (user.areaOfServiceInfo.travelCapacity) setTravelCapacity(user.areaOfServiceInfo.travelCapacity);
+        if (user.areaOfServiceInfo.travelTimePreference) {
+          setTravelTimePreference(user.areaOfServiceInfo.travelTimePreference);
+        }
+        if (user.areaOfServiceInfo.urgentVisits !== undefined) {
+          setUrgentVisits(Boolean(user.areaOfServiceInfo.urgentVisits));
+        }
+        if (user.areaOfServiceInfo.drivingLicenseNumber || user.drivingLicenseNumber) {
+          setDrivingLicenseNumber(
+            user.areaOfServiceInfo.drivingLicenseNumber || user.drivingLicenseNumber || ''
+          );
+        }
+      } else if (user?.drivingLicenseNumber) {
+        setDrivingLicenseNumber(user.drivingLicenseNumber);
       }
 
-      if (user.onboardingStep !== undefined && user.onboardingStep >= 0 && user.onboardingStep <= 4) {
-        setMaxUnlockedStep(Math.max(user.onboardingStep, 0));
+      const dlRaw =
+        user?.areaOfServiceInfo?.drivingLicense ??
+        user?.drivingLicenseUrl ??
+        (user as any)?.drivingLicense;
+      const dlUrl = extractDocUrl(dlRaw);
+      if (dlUrl) {
+        setDrivingLicenseDoc({
+          url: dlUrl,
+          name: extractDocName(dlRaw, 'Driving_License.pdf'),
+        });
+      }
+
+      // Fee status hydration
+      const paid = Boolean(user?.isOnboardingPaid);
+      const waived = !user?.isOnboardingPaid && isFeeSettled(user);
+      setIsFeePaid(paid);
+      setIsFeeWaived(waived);
+
+      // Checklist & Incomplete Mode hydration
+      const normalizedList = normalizeChecklist(user?.incompleteChecklist);
+      setChecklistItems(normalizedList);
+      const skipDraftStepOverride = shouldSkipLocalDraftStepOverride(user);
+      const noteFromServer =
+        (user?.incompleteNote || '').trim() ||
+        (skipDraftStepOverride ? (user?.rejectionReason || '').trim() : '');
+      setIncompleteNote(noteFromServer);
+      if (queryFocus) setFocusedChecklistKey(queryFocus);
+
+      const focusMatchedItem = queryFocus
+        ? normalizedList.find((item) => item.key === queryFocus)
+        : undefined;
+
+      if (skipDraftStepOverride) {
+        setMaxUnlockedStep(4);
+        const initialStep =
+          queryStep !== null
+            ? queryStep
+            : focusMatchedItem
+              ? focusMatchedItem.step
+              : normalizedList.length > 0
+                ? getNextPendingStep(normalizedList)
+                : typeof user?.onboardingStep === 'number' &&
+                    user.onboardingStep >= 0 &&
+                    user.onboardingStep <= 4
+                  ? user.onboardingStep
+                  : 0;
+        setCurrentStep(initialStep);
+      } else if (queryStep !== null) {
+        const maxStep = Math.max(
+          typeof user?.onboardingStep === 'number' &&
+            user.onboardingStep >= 0 &&
+            user.onboardingStep <= 4
+            ? user.onboardingStep
+            : 0,
+          queryStep
+        );
+        setMaxUnlockedStep(maxStep);
+        setCurrentStep(queryStep);
+      } else if (
+        typeof user?.onboardingStep === 'number' &&
+        user.onboardingStep >= 0 &&
+        user.onboardingStep <= 4
+      ) {
+        setMaxUnlockedStep(user.onboardingStep);
         setCurrentStep(user.onboardingStep);
       }
-    }
 
-    // Load Local Draft
-    const cached = localStorage.getItem('onboarding_full_draft_v3');
-    if (cached) {
-      try {
-        const d = JSON.parse(cached);
-        if (d.selectedCountry && COUNTRY_CONFIGS[d.selectedCountry]) {
-          setSelectedCountry(d.selectedCountry);
-        }
-        if (d.profilePhotoUrl) {
-          setProfilePhotoUrl(d.profilePhotoUrl);
-        }
-        if (d.maxUnlockedStep !== undefined && typeof d.maxUnlockedStep === 'number') {
-          setMaxUnlockedStep((prev) => Math.max(prev, d.maxUnlockedStep));
-        }
-        if (d.currentStep !== undefined && typeof d.currentStep === 'number') {
-          const validStep = Math.min(d.currentStep, d.maxUnlockedStep ?? 0);
-          setCurrentStep(validStep);
-        }
-        if (d.fullName && !user?.fullName) {
-          setFullName(d.fullName);
-          const parts = d.fullName.trim().split(' ');
-          if (parts.length > 0) {
-            setFirstName(parts[0]);
-            setLastName(parts.slice(1).join(' '));
-          }
-        }
-        if (d.phone && !user?.phone) setPhone(d.phone);
-        if (d.email && !user?.email) setEmail(d.email);
-        if (d.city && !user?.city) setCity(d.city);
-        if (d.licenseNumber && !user?.licenseNumber) setLicenseNumber(d.licenseNumber);
-        if (d.targetPincodes && d.targetPincodes.length > 0) setTargetPincodes(d.targetPincodes);
-        if (d.serviceAreas && d.serviceAreas.length > 0) setServiceAreas(d.serviceAreas);
-        if (d.bankFieldValues) setBankFieldValues((prev) => ({ ...prev, ...d.bankFieldValues }));
-      } catch (_) {}
+      // Load local draft only for missing fields; never override step when incomplete
+      applyLocalDraftDefaults(localStorage.getItem('onboarding_full_draft_v3'), {
+        skipStepOverride: skipDraftStepOverride,
+        queryStep,
+        hasCountry: Boolean(user?.countryName),
+        hasPhoto: Boolean(hydratedPhotoUrl),
+        hasFullName: Boolean(resolvedFullName),
+        hasPhone: Boolean(user?.phone),
+        hasEmail: Boolean(user?.email),
+        hasCity: Boolean(user?.city),
+        hasState: Boolean(user?.state),
+        hasServiceCity: Boolean(user?.areaOfServiceInfo?.city || user?.city),
+        hasLicense: Boolean(user?.licenseNumber),
+        hasPincodes: hydratedPincodes.length > 0,
+        hasAreas: hydratedAreas.length > 0,
+        hasBankAccount: Boolean(user?.bankInfo?.accountNumber),
+        serverOnboardingStep: user?.onboardingStep,
+      });
+    } else if (!isLoading && !user && !hasLoadedLocalDraftRef.current) {
+      hasLoadedLocalDraftRef.current = true;
+      applyLocalDraftDefaults(localStorage.getItem('onboarding_full_draft_v3'), {
+        skipStepOverride: false,
+        queryStep,
+        hasCountry: false,
+        hasPhoto: false,
+        hasFullName: false,
+        hasPhone: false,
+        hasEmail: false,
+        hasCity: false,
+        hasState: false,
+        hasServiceCity: false,
+        hasLicense: false,
+        hasPincodes: false,
+        hasAreas: false,
+        hasBankAccount: false,
+      });
+      if (queryStep !== null) {
+        setMaxUnlockedStep((prev) => Math.max(prev, queryStep));
+        setCurrentStep(queryStep);
+      }
+      if (queryFocus) setFocusedChecklistKey(queryFocus);
     }
-  }, [user]);
+  }, [user, isLoading]);
+
+  // Keep server-authoritative fee & checklist metadata synced if `refreshUser` updates the same `_id`
+  useEffect(() => {
+    if (!user?._id) return;
+    const paid = Boolean(user.isOnboardingPaid);
+    if (paid) setIsFeePaid(true);
+    setIsFeeWaived(!paid && isFeeSettled(user));
+
+    const serverChecklist = normalizeChecklist(user.incompleteChecklist);
+    setChecklistItems(
+      serverChecklist.map((item) =>
+        localResubmittedKeysRef.current.has(item.key) && item.status !== 'resubmitted'
+          ? { ...item, status: 'resubmitted' }
+          : item
+      )
+    );
+    const nextNote =
+      (user.incompleteNote || '').trim() ||
+      (shouldSkipLocalDraftStepOverride(user) ? (user.rejectionReason || '').trim() : '');
+    setIncompleteNote(nextNote);
+    if (shouldSkipLocalDraftStepOverride(user)) {
+      setMaxUnlockedStep(4);
+    }
+  }, [
+    user?._id,
+    user?.isOnboardingPaid,
+    user?.isFeeWaived,
+    user?.paymentStatus,
+    user?.createdAt,
+    user?.onboardingStatus,
+    user?.status,
+    user?.incompleteChecklist,
+    user?.incompleteNote,
+    user?.rejectionReason,
+  ]);
+
+  // Scroll cleanly to a targeted checklist section when focused via query param, banner, or 400 jump
+  useEffect(() => {
+    if (!focusedChecklistKey || typeof document === 'undefined') return;
+    const timer = window.setTimeout(() => {
+      const targetEl = document.querySelector(`[data-checklist-key="${focusedChecklistKey}"]`);
+      if (targetEl) {
+        targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [focusedChecklistKey, currentStep]);
 
   // Sync Combined Full Name
   useEffect(() => {
@@ -596,7 +1038,8 @@ export default function ProviderOnboardingPage() {
 
   // Auto-persist draft to localStorage with real-time feedback
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || isSubmittedSuccess) return;
+    if (!hydratedUserIdRef.current && !hasLoadedLocalDraftRef.current) return;
     const draft = {
       selectedCountry,
       profilePhotoUrl,
@@ -648,6 +1091,7 @@ export default function ProviderOnboardingPage() {
     } catch (_) {}
     setLastSavedText('Autosaved just now');
   }, [
+    isSubmittedSuccess,
     selectedCountry,
     profilePhotoUrl,
     firstName,
@@ -764,6 +1208,140 @@ export default function ProviderOnboardingPage() {
     }
   };
 
+  const isIncompleteMode = shouldSkipLocalDraftStepOverride(user) || checklistItems.length > 0;
+  const showIncompleteBanner =
+    isIncompleteMode &&
+    (checklistItems.length > 0 ||
+      incompleteNote.trim().length > 0 ||
+      (user?.onboardingStep ?? 0) >= 5);
+
+  const pendingChecklistCount = checklistItems.filter((item) => item.status !== 'resubmitted').length;
+  const updatedChecklistCount = checklistItems.length - pendingChecklistCount;
+
+  const isChecklistFlagged = (keys: string[]) =>
+    checklistItems.some((item) => keys.includes(item.key));
+
+  const isChecklistFocused = (keys: string[]) =>
+    Boolean(focusedChecklistKey && keys.includes(focusedChecklistKey));
+
+  const getChecklistItemFor = (keys: string[]) =>
+    checklistItems.find((item) => keys.includes(item.key));
+
+  const getSectionHighlightClass = (keys: string[]) => {
+    const item = getChecklistItemFor(keys);
+    if (!item) return 'border-slate-800/80';
+    if (isChecklistFocused(keys)) {
+      return item.status === 'resubmitted'
+        ? 'border-emerald-400/70 ring-2 ring-emerald-400/40 shadow-lg shadow-emerald-500/10'
+        : 'border-amber-400 ring-2 ring-amber-400/50 shadow-lg shadow-amber-500/15';
+    }
+    return item.status === 'resubmitted'
+      ? 'border-emerald-500/35'
+      : 'border-amber-500/50';
+  };
+
+  const renderSectionFlagBadge = (keys: string[]) => {
+    const item = getChecklistItemFor(keys);
+    if (!item) return null;
+    const isUpdated = item.status === 'resubmitted';
+    return (
+      <div className="flex flex-wrap items-center gap-2 mb-2">
+        <span
+          className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[10px] font-bold uppercase tracking-wider ${
+            isUpdated
+              ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+              : 'bg-amber-500/15 text-amber-300 border-amber-500/40'
+          }`}
+        >
+          {isUpdated ? <CheckCircle2 className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
+          {isUpdated ? 'Updated' : 'Admin Requested Update'}
+        </span>
+        {item.note && (
+          <span className="text-[11px] text-amber-200/90 font-medium">{item.note}</span>
+        )}
+      </div>
+    );
+  };
+
+  const jumpToChecklistItem = (item: ParityChecklistItem) => {
+    setErrorMsg('');
+    setSuccessMsg('');
+    setFocusedChecklistKey(item.key);
+    setCurrentStep(item.step);
+    if (typeof window !== 'undefined' && !document.querySelector(`[data-checklist-key="${item.key}"]`)) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  const handleFeeConfirmed = () => {
+    setIsFeePaid(true);
+    setIsFeeWaived(false);
+    localResubmittedKeysRef.current.add('registrationFee');
+    const updatedChecklist = markParityStepResubmitted(checklistItems, 4);
+    setChecklistItems(updatedChecklist);
+    updateUserData({
+      isOnboardingPaid: true,
+      incompleteChecklist: updatedChecklist,
+    });
+    void refreshProfile().catch(() => undefined);
+  };
+
+  const advanceAfterStepSave = (
+    savedStep: number,
+    serverProfile: Record<string, any> | undefined,
+    localUpdates: Record<string, any>
+  ) => {
+    checklistItems
+      .filter((item) => item.step === savedStep)
+      .forEach((item) => localResubmittedKeysRef.current.add(item.key));
+
+    const baseChecklist =
+      serverProfile?.incompleteChecklist && serverProfile.incompleteChecklist.length > 0
+        ? normalizeChecklist(serverProfile.incompleteChecklist)
+        : checklistItems;
+    const updatedChecklist = markParityStepResubmitted(baseChecklist, savedStep);
+    setChecklistItems(updatedChecklist);
+
+    const nextStep =
+      isIncompleteMode && updatedChecklist.length > 0
+        ? getNextPendingStep(updatedChecklist)
+        : savedStep + 1;
+
+    updateUserData({
+      ...(serverProfile || {}),
+      ...localUpdates,
+      ...(isIncompleteMode
+        ? {
+            isProfileActive: false,
+            incompleteChecklist: updatedChecklist,
+            onboardingStatus:
+              serverProfile?.onboardingStatus || user?.onboardingStatus || 'incomplete',
+          }
+        : { onboardingStep: nextStep }),
+    });
+
+    if (isIncompleteMode && updatedChecklist.length > 0) {
+      setMaxUnlockedStep(4);
+      const nextPendingItem = updatedChecklist.find(
+        (item) => item.step === nextStep && item.status !== 'resubmitted'
+      );
+      setFocusedChecklistKey(nextPendingItem?.key || null);
+      setCurrentStep(nextStep);
+      setSuccessMsg(
+        nextStep === 4
+          ? 'All flagged updates saved! Review your summary and submit updates for review.'
+          : `Step ${savedStep + 1} updates saved. Jumping to the next flagged section (Step ${nextStep + 1}).`
+      );
+    } else {
+      setMaxUnlockedStep((prev) => Math.max(prev, nextStep));
+      setCurrentStep(nextStep);
+    }
+
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
   // ── Step Form Submissions ─────────────────────────────
   const handleStepSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -797,7 +1375,12 @@ export default function ProviderOnboardingPage() {
         fd.append('gender', gender);
         fd.append('dob', dob);
         fd.append('email', email.toLowerCase().trim());
-        fd.append('password', password || 'Aries@2026');
+        const trimmedPassword = password.trim();
+        if (trimmedPassword.length > 0) {
+          fd.append('password', trimmedPassword);
+        } else if (!user?._id) {
+          fd.append('password', 'Aries@2026');
+        }
         fd.append('phone', cleanPhone);
         fd.append('isMobileNumberVerified', 'true');
         fd.append('countryCode', COUNTRY_CONFIGS[selectedCountry]?.phoneCode || '+91');
@@ -814,10 +1397,13 @@ export default function ProviderOnboardingPage() {
           if (v) fd.append(k, v);
         });
 
-        // Append Profile Photo if selected
+        // Append Profile Photo if selected or preserve remote HTTPS photo
         if (profilePhotoFile) {
           fd.append('profilePhoto', profilePhotoFile);
         } else if (profilePhotoUrl) {
+          if (profilePhotoUrl.startsWith('http')) {
+            fd.append('profilePhoto', profilePhotoUrl);
+          }
           fd.append('profilePhotoUrl', profilePhotoUrl);
         }
 
@@ -825,7 +1411,7 @@ export default function ProviderOnboardingPage() {
         Object.entries(idDocFiles).forEach(([key, val]) => {
           if (val.file) {
             fd.append(key, val.file);
-          } else if (val.url) {
+          } else if (val.url && !val.url.startsWith('blob:')) {
             fd.append(key, val.url);
           }
         });
@@ -833,7 +1419,7 @@ export default function ProviderOnboardingPage() {
         const res = await providerApi.addPersonalInfo(fd);
         const registeredId = res.result?._id || res.result?.id || effectiveUserId;
 
-        updateUserData({
+        advanceAfterStepSave(0, res.result, {
           _id: registeredId,
           fullName,
           email,
@@ -843,14 +1429,7 @@ export default function ProviderOnboardingPage() {
           countryName: selectedCountry,
           profilePhoto: profilePhotoUrl,
           profileImageUrl: profilePhotoUrl,
-          onboardingStep: 1,
         });
-
-        setMaxUnlockedStep((prev) => Math.max(prev, 1));
-        setCurrentStep(1);
-        if (typeof window !== 'undefined') {
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
       } else if (currentStep === 1) {
         // ── Step 2: Professional Qualifications ──
         if (!qualification || !licenseNumber) {
@@ -899,21 +1478,17 @@ export default function ProviderOnboardingPage() {
           if (cert.file) fd.append(`extraCertification_${idx}`, cert.file);
         });
 
-        await providerApi.addProfessionalInfo(fd);
-        updateUserData({
+        const res = await providerApi.addProfessionalInfo(fd);
+        advanceAfterStepSave(1, res.result, {
           designation: professionalRole,
           specialization: qualification,
           licenseNumber,
           yearsOfExperience: String(yearOfExperience),
-          professionalInfo: professionalPayload,
-          onboardingStep: 2,
+          professionalInfo: {
+            ...(res.result?.professionalInfo || {}),
+            ...professionalPayload,
+          },
         });
-
-        setMaxUnlockedStep((prev) => Math.max(prev, 2));
-        setCurrentStep(2);
-        if (typeof window !== 'undefined') {
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
       } else if (currentStep === 2) {
         // ── Step 3: Banking & Payouts ──
         const currentCountry = COUNTRY_CONFIGS[selectedCountry] || COUNTRY_CONFIGS.India;
@@ -952,17 +1527,13 @@ export default function ProviderOnboardingPage() {
           fd.append('cancelledCheque', bankDoc.file);
         }
 
-        await providerApi.addBankInfo(fd);
-        updateUserData({
-          bankInfo: bankPayload,
-          onboardingStep: 3,
+        const res = await providerApi.addBankInfo(fd);
+        advanceAfterStepSave(2, res.result, {
+          bankInfo: {
+            ...(res.result?.bankInfo || {}),
+            ...bankPayload,
+          },
         });
-
-        setMaxUnlockedStep((prev) => Math.max(prev, 3));
-        setCurrentStep(3);
-        if (typeof window !== 'undefined') {
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
       } else if (currentStep === 3) {
         // ── Step 4: Service Territory & Commute ──
         if (targetPincodes.length === 0) {
@@ -986,7 +1557,7 @@ export default function ProviderOnboardingPage() {
           drivingLicenseNumber,
           travelCapacity,
           urgentVisits,
-          maxDistance: serviceRadius + 5,
+          maxDistance: maxDistancePerVisit || serviceRadius + 5,
           travelTimePreference,
         };
 
@@ -995,20 +1566,16 @@ export default function ProviderOnboardingPage() {
           fd.append('drivingLicense', drivingLicenseDoc.file);
         }
 
-        await providerApi.addAreaOfServiceInfo(fd);
-        updateUserData({
+        const res = await providerApi.addAreaOfServiceInfo(fd);
+        advanceAfterStepSave(3, res.result, {
           city: serviceCity || city,
           serviceAreas,
           targetPincodes,
-          areaOfServiceInfo: areaPayload,
-          onboardingStep: 4,
+          areaOfServiceInfo: {
+            ...(res.result?.areaOfServiceInfo || {}),
+            ...areaPayload,
+          },
         });
-
-        setMaxUnlockedStep((prev) => Math.max(prev, 4));
-        setCurrentStep(4);
-        if (typeof window !== 'undefined') {
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
       } else if (currentStep === 4) {
         // ── Step 5: Compliance Declarations & Final Submit ──
         if (!declarationTrue || !agreeClinicalGuidelines || !agreeDoorstepSafety || !agreeTermsAndPolicies) {
@@ -1020,24 +1587,65 @@ export default function ProviderOnboardingPage() {
         const reviewRes = await providerApi.submitForReview(effectiveUserId);
 
         // `submitForReview` puts the profile in the clinical-governance queue with status
-        // "Pending" — it does not approve it. Reflect what the backend returned rather
-        // than marking the account approved and active locally.
-        updateUserData(
-          reviewRes.result || {
-            onboardingStep: 5,
-            onboardingStatus: 'UNDER_REVIEW',
-            status: 'UNDER_REVIEW',
-          }
-        );
+        // "Pending" — never leave stale `isProfileActive: true` or stale checklist items.
+        localResubmittedKeysRef.current.clear();
+        setChecklistItems([]);
+        setIncompleteNote('');
+        updateUserData({
+          ...(reviewRes.result || {}),
+          onboardingStep: reviewRes.result?.onboardingStep ?? 5,
+          onboardingStatus: reviewRes.result?.onboardingStatus || 'pending',
+          status: reviewRes.result?.status || 'Pending',
+          isProfileActive: false,
+          isTherapistActive: false,
+          incompleteChecklist: reviewRes.result?.incompleteChecklist ?? [],
+          incompleteNote: reviewRes.result?.incompleteNote ?? '',
+          rejectionReason: reviewRes.result?.rejectionReason ?? '',
+        });
 
         setIsSubmittedSuccess(true);
-        if (typeof window !== 'undefined') {
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
+        try {
+          localStorage.removeItem('onboarding_full_draft_v3');
+        } catch (_) {}
+
+        await refreshProfile().catch(() => undefined);
+        router.replace('/onboarding-status');
       }
     } catch (err: any) {
       console.error('[Onboarding] Submission error:', err);
-      setErrorMsg(err?.message || 'Something went wrong while updating your profile. Please try again.');
+      if (currentStep === 4) {
+        let latestChecklist = checklistItems;
+        if (user?._id && err?.statusCode === 400) {
+          try {
+            const refreshed = await providerApi.refreshUser(user._id);
+            if (refreshed.success && refreshed.result) {
+              latestChecklist = normalizeChecklist(refreshed.result.incompleteChecklist);
+              setChecklistItems(latestChecklist);
+              updateUserData(refreshed.result);
+            }
+          } catch {
+            /* keep local checklist if refresh fails */
+          }
+        }
+        const parsedErr = parseSubmitForReviewError(err, latestChecklist);
+        setErrorMsg(parsedErr.message);
+        if (parsedErr.targetStep !== null) {
+          const targetPending = latestChecklist.find(
+            (item) => item.step === parsedErr.targetStep && item.status !== 'resubmitted'
+          );
+          setFocusedChecklistKey(
+            parsedErr.code === 'REGISTRATION_FEE_REQUIRED'
+              ? 'registrationFee'
+              : targetPending?.key || null
+          );
+          setCurrentStep(parsedErr.targetStep);
+          if (typeof window !== 'undefined') {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }
+        }
+      } else {
+        setErrorMsg(err?.message || 'Something went wrong while updating your profile. Please try again.');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -1099,26 +1707,143 @@ export default function ProviderOnboardingPage() {
 
       <main className="max-w-7xl mx-auto px-4 py-8 lg:py-12 lg:grid lg:grid-cols-[minmax(0,1fr)_240px] lg:gap-8">
         <div className="min-w-0">
+        {/* ── Sticky Admin Requested Updates Banner ───── */}
+        {showIncompleteBanner && (
+          <div className="sticky top-[68px] z-30 mb-6 rounded-3xl bg-slate-950/95 border border-amber-500/40 backdrop-blur-xl p-4 sm:p-5 shadow-2xl shadow-amber-950/20 space-y-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex items-start gap-3 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-amber-500/15 border border-amber-500/35 flex items-center justify-center shrink-0 mt-0.5">
+                  <ClipboardCheck className="w-4 h-4 text-amber-400" />
+                </div>
+                <div className="min-w-0 space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-sm font-black text-white font-outfit">
+                      Admin Requested Updates
+                    </h2>
+                    {checklistItems.length > 0 && (
+                      <span className="px-2.5 py-0.5 rounded-full bg-amber-500/15 border border-amber-500/30 text-[10px] font-bold text-amber-300">
+                        {updatedChecklistCount} of {checklistItems.length} updated
+                      </span>
+                    )}
+                  </div>
+                  {incompleteNote ? (
+                    <p className="text-xs text-amber-100/90 leading-relaxed flex items-start gap-1.5 break-words">
+                      <MessageSquareText className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                      <span>{incompleteNote}</span>
+                    </p>
+                  ) : (
+                    <p className="text-xs text-slate-300">
+                      Update the flagged items below, save each section, and resubmit for verification.
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                {currentStep !== 4 ? (
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      setErrorMsg('');
+                      setFocusedChecklistKey(null);
+                      setCurrentStep(4);
+                      if (typeof window !== 'undefined') {
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                      }
+                    }}
+                    className="h-9 px-3.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs gap-1.5 shadow-lg shadow-amber-500/20"
+                  >
+                    <span>Go to Review &amp; Resubmit</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </Button>
+                ) : pendingChecklistCount > 0 ? (
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      const nextPending = checklistItems.find((i) => i.status !== 'resubmitted');
+                      if (nextPending) jumpToChecklistItem(nextPending);
+                    }}
+                    className="h-9 px-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-amber-500/30 font-bold text-xs gap-1.5"
+                  >
+                    <span>Jump to Pending Item</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+
+            {checklistItems.length > 0 && (
+              <div className="flex flex-wrap gap-2 pt-1">
+                {checklistItems.map((item) => {
+                  const isCurrentStepItem = item.step === currentStep;
+                  const isUpdated = item.status === 'resubmitted';
+                  const isFocused = focusedChecklistKey === item.key;
+                  const stepName = ONBOARDING_STEP_TITLES[item.step] || `Step ${item.step + 1}`;
+                  return (
+                    <button
+                      type="button"
+                      key={item.key}
+                      onClick={() => jumpToChecklistItem(item)}
+                      title={item.note ? `${stepName}: ${item.note}` : stepName}
+                      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border text-left text-xs transition-all ${
+                        isCurrentStepItem
+                          ? isFocused
+                            ? 'bg-amber-500/20 border-amber-300 text-white ring-2 ring-amber-400/50 shadow-md shadow-amber-500/15'
+                            : 'bg-teal-500/15 border-teal-400/70 text-white ring-1 ring-teal-400/40'
+                          : isUpdated
+                            ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-200 hover:border-emerald-400/50'
+                            : 'bg-slate-900/90 border-amber-500/30 text-slate-200 hover:border-amber-400/60'
+                      }`}
+                    >
+                      <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">
+                        S{item.step + 1}
+                      </span>
+                      <span className="font-semibold truncate max-w-[200px]">{item.label}</span>
+                      <span
+                        className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider ${
+                          isUpdated
+                            ? 'bg-emerald-500/20 text-emerald-300'
+                            : 'bg-amber-500/20 text-amber-300'
+                        }`}
+                      >
+                        {isUpdated ? 'Updated' : 'Pending'}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ── Stepper Indicator ───────────────────────── */}
         <div className="mb-8">
           <div className="grid grid-cols-5 gap-2 lg:gap-4 mb-4">
             {STEPS.map((step, idx) => {
-              const isDone = currentStep > step.id || maxUnlockedStep > step.id;
+              const hasPendingForStep = checklistItems.some(
+                (item) => item.step === step.id && item.status !== 'resubmitted'
+              );
+              const isDone =
+                !hasPendingForStep && (currentStep > step.id || maxUnlockedStep > step.id);
               const isCurrent = currentStep === step.id;
-              const isUnlocked = step.id <= maxUnlockedStep;
+              const isUnlocked = step.id <= maxUnlockedStep || isIncompleteMode;
 
               return (
                 <button
+                  type="button"
                   key={step.id}
                   disabled={!isUnlocked}
                   onClick={() => {
                     if (isUnlocked) {
+                      setErrorMsg('');
                       setCurrentStep(step.id);
                     }
                   }}
                   className={`text-left p-3 rounded-2xl border transition-all relative overflow-hidden ${
                     isCurrent
                       ? 'bg-gradient-to-br from-teal-500/15 to-emerald-500/5 border-teal-500/50 shadow-lg shadow-teal-500/10'
+                      : hasPendingForStep
+                      ? 'bg-amber-500/[0.07] border-amber-500/40 text-amber-200 hover:border-amber-400/70 cursor-pointer'
                       : isDone
                       ? 'bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700 cursor-pointer'
                       : 'bg-slate-950/40 border-slate-900/80 text-slate-600 opacity-50 cursor-not-allowed'
@@ -1127,7 +1852,9 @@ export default function ProviderOnboardingPage() {
                   <div className="flex items-center justify-between mb-1.5">
                     <span
                       className={`w-6 h-6 rounded-lg text-xs font-bold flex items-center justify-center ${
-                        isDone
+                        hasPendingForStep
+                          ? 'bg-amber-400 text-slate-950'
+                          : isDone
                           ? 'bg-emerald-500 text-slate-950'
                           : isCurrent
                           ? 'bg-teal-400 text-slate-950'
@@ -1136,7 +1863,9 @@ export default function ProviderOnboardingPage() {
                           : 'bg-slate-900 text-slate-600'
                       }`}
                     >
-                      {isDone ? (
+                      {hasPendingForStep ? (
+                        <AlertTriangle className="w-3.5 h-3.5" />
+                      ) : isDone ? (
                         <Check className="w-3.5 h-3.5 stroke-[3]" />
                       ) : isUnlocked ? (
                         step.stepNumber
@@ -1145,7 +1874,7 @@ export default function ProviderOnboardingPage() {
                       )}
                     </span>
                     <span className="text-[10px] font-mono text-slate-500 hidden sm:inline">
-                      {isUnlocked ? `0${step.stepNumber}/05` : 'LOCKED'}
+                      {hasPendingForStep ? 'FLAGGED' : isUnlocked ? `0${step.stepNumber}/05` : 'LOCKED'}
                     </span>
                   </div>
                   <div className="text-xs font-bold text-white truncate">{step.title}</div>
@@ -1191,7 +1920,11 @@ export default function ProviderOnboardingPage() {
           {currentStep === 0 && (
             <div className="space-y-8 animate-in fade-in duration-300">
               {/* Profile Photo & Portrait Studio */}
-              <div className="p-6 rounded-3xl bg-slate-900/70 border border-slate-800/80 backdrop-blur-xl relative overflow-hidden">
+              <div
+                data-checklist-key="profilePhoto"
+                className={`p-6 rounded-3xl bg-slate-900/70 border backdrop-blur-xl relative overflow-hidden ${getSectionHighlightClass(['profilePhoto'])}`}
+              >
+                {renderSectionFlagBadge(['profilePhoto'])}
                 <div className="flex flex-col sm:flex-row items-center gap-6">
                   <div className="flex items-center gap-2">
                     {profilePhotoUrl && (
@@ -1284,7 +2017,11 @@ export default function ProviderOnboardingPage() {
               </div>
 
               {/* Basic Details Form */}
-              <div className="p-6 rounded-3xl bg-slate-900/70 border border-slate-800/80 backdrop-blur-xl space-y-6">
+              <div
+                data-checklist-key="personalDetails"
+                className={`p-6 rounded-3xl bg-slate-900/70 border backdrop-blur-xl space-y-6 ${getSectionHighlightClass(['personalDetails'])}`}
+              >
+                {renderSectionFlagBadge(['personalDetails'])}
                 <div className="border-b border-slate-800 pb-4">
                   <h3 className="text-base font-bold text-white flex items-center gap-2">
                     <User className="w-4 h-4 text-teal-400" /> Basic Information
@@ -1445,7 +2182,11 @@ export default function ProviderOnboardingPage() {
               </div>
 
               {/* Address Details */}
-              <div className="p-6 rounded-3xl bg-slate-900/70 border border-slate-800/80 backdrop-blur-xl space-y-6">
+              <div
+                data-checklist-key="addressDetails"
+                className={`p-6 rounded-3xl bg-slate-900/70 border backdrop-blur-xl space-y-6 ${getSectionHighlightClass(['addressDetails'])}`}
+              >
+                {renderSectionFlagBadge(['addressDetails'])}
                 <div className="border-b border-slate-800 pb-4">
                   <h3 className="text-base font-bold text-white flex items-center gap-2">
                     <MapPin className="w-4 h-4 text-teal-400" /> Residential & Communication Address
@@ -1530,7 +2271,11 @@ export default function ProviderOnboardingPage() {
               </div>
 
               {/* Dynamic Country ID & KYC Documents */}
-              <div className="p-6 rounded-3xl bg-slate-900/70 border border-slate-800/80 backdrop-blur-xl space-y-6">
+              <div
+                data-checklist-key="identityProof"
+                className={`p-6 rounded-3xl bg-slate-900/70 border backdrop-blur-xl space-y-6 ${getSectionHighlightClass(['identityProof'])}`}
+              >
+                {renderSectionFlagBadge(['identityProof'])}
                 <div className="border-b border-slate-800 pb-4">
                   <div className="flex items-center justify-between">
                     <h3 className="text-base font-bold text-white flex items-center gap-2">
@@ -1640,7 +2385,8 @@ export default function ProviderOnboardingPage() {
                     </>
                   ) : (
                     <>
-                      Continue to Qualifications <ChevronRight className="w-4 h-4" />
+                      {isIncompleteMode ? 'Save Updates & Continue' : 'Continue to Qualifications'}{' '}
+                      <ChevronRight className="w-4 h-4" />
                     </>
                   )}
                 </Button>
@@ -1654,7 +2400,11 @@ export default function ProviderOnboardingPage() {
           {currentStep === 1 && (
             <div className="space-y-8 animate-in fade-in duration-300">
               {/* Professional Role Selection */}
-              <div className="p-6 rounded-3xl bg-slate-900/70 border border-slate-800/80 backdrop-blur-xl space-y-6">
+              <div
+                data-checklist-key="professionalRole"
+                className={`p-6 rounded-3xl bg-slate-900/70 border backdrop-blur-xl space-y-6 ${getSectionHighlightClass(['professionalRole'])}`}
+              >
+                {renderSectionFlagBadge(['professionalRole'])}
                 <div className="border-b border-slate-800 pb-4">
                   <h3 className="text-base font-bold text-white flex items-center gap-2">
                     <Briefcase className="w-4 h-4 text-teal-400" /> Primary Healthcare Profession
@@ -1692,7 +2442,11 @@ export default function ProviderOnboardingPage() {
               </div>
 
               {/* Degrees, Specializations, Experience */}
-              <div className="p-6 rounded-3xl bg-slate-900/70 border border-slate-800/80 backdrop-blur-xl space-y-6">
+              <div
+                data-checklist-key="experienceSpecializations"
+                className={`p-6 rounded-3xl bg-slate-900/70 border backdrop-blur-xl space-y-6 ${getSectionHighlightClass(['experienceSpecializations'])}`}
+              >
+                {renderSectionFlagBadge(['experienceSpecializations'])}
                 <div className="border-b border-slate-800 pb-4">
                   <h3 className="text-base font-bold text-white flex items-center gap-2">
                     <GraduationCap className="w-4 h-4 text-teal-400" /> Qualifications & Years of Experience
@@ -1839,7 +2593,11 @@ export default function ProviderOnboardingPage() {
               </div>
 
               {/* Regulatory License & Council Information */}
-              <div className="p-6 rounded-3xl bg-slate-900/70 border border-slate-800/80 backdrop-blur-xl space-y-6">
+              <div
+                data-checklist-key="licenseProof"
+                className={`p-6 rounded-3xl bg-slate-900/70 border backdrop-blur-xl space-y-6 ${getSectionHighlightClass(['licenseProof', 'degreeCertificate'])}`}
+              >
+                {renderSectionFlagBadge(['licenseProof'])}
                 <div className="border-b border-slate-800 pb-4">
                   <h3 className="text-base font-bold text-white flex items-center gap-2">
                     <Award className="w-4 h-4 text-teal-400" /> Regulatory License & Registration ({selectedCountry})
@@ -1994,7 +2752,15 @@ export default function ProviderOnboardingPage() {
                 </div>
 
                 {/* Professional Document Uploads */}
-                <div className="space-y-3 pt-2">
+                <div
+                  data-checklist-key="degreeCertificate"
+                  className={`space-y-3 pt-2 rounded-2xl ${
+                    isChecklistFlagged(['degreeCertificate'])
+                      ? `p-4 border bg-slate-950/40 ${getSectionHighlightClass(['degreeCertificate'])}`
+                      : ''
+                  }`}
+                >
+                  {renderSectionFlagBadge(['degreeCertificate'])}
                   <Label className="text-xs text-slate-300">Accreditation Document Uploads</Label>
 
                   {[
@@ -2147,7 +2913,8 @@ export default function ProviderOnboardingPage() {
                     </>
                   ) : (
                     <>
-                      Continue to Banking <ChevronRight className="w-4 h-4" />
+                      {isIncompleteMode ? 'Save Updates & Continue' : 'Continue to Banking'}{' '}
+                      <ChevronRight className="w-4 h-4" />
                     </>
                   )}
                 </Button>
@@ -2160,7 +2927,11 @@ export default function ProviderOnboardingPage() {
           {/* ========================================================================= */}
           {currentStep === 2 && (
             <div className="space-y-8 animate-in fade-in duration-300">
-              <div className="p-6 rounded-3xl bg-slate-900/70 border border-slate-800/80 backdrop-blur-xl space-y-6">
+              <div
+                data-checklist-key="bankDetails"
+                className={`p-6 rounded-3xl bg-slate-900/70 border backdrop-blur-xl space-y-6 ${getSectionHighlightClass(['bankDetails', 'panTaxDetails', 'cancelledCheque'])}`}
+              >
+                {renderSectionFlagBadge(['bankDetails'])}
                 <div className="border-b border-slate-800 pb-4">
                   <div className="flex items-center justify-between">
                     <h3 className="text-base font-bold text-white flex items-center gap-2">
@@ -2233,7 +3004,15 @@ export default function ProviderOnboardingPage() {
 
                   {/* Tax Field */}
                   {currentCountryConfig.banking.taxField && (
-                    <div className="md:col-span-2">
+                    <div
+                      data-checklist-key="panTaxDetails"
+                      className={`md:col-span-2 rounded-2xl ${
+                        isChecklistFlagged(['panTaxDetails'])
+                          ? `p-4 border bg-slate-950/60 ${getSectionHighlightClass(['panTaxDetails'])}`
+                          : ''
+                      }`}
+                    >
+                      {renderSectionFlagBadge(['panTaxDetails'])}
                       <Label className="text-xs text-slate-300">
                         {currentCountryConfig.banking.taxField.label} *
                       </Label>
@@ -2262,7 +3041,12 @@ export default function ProviderOnboardingPage() {
                 )}
 
                 {/* Cancelled Cheque / Bank Proof Document Upload */}
-                <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div
+                  data-checklist-key="cancelledCheque"
+                  className={`p-4 rounded-2xl bg-slate-950/60 border space-y-2 ${getSectionHighlightClass(['cancelledCheque'])}`}
+                >
+                  {renderSectionFlagBadge(['cancelledCheque'])}
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-400">
                       <CreditCard className="w-5 h-5" />
@@ -2296,6 +3080,7 @@ export default function ProviderOnboardingPage() {
                       }}
                     />
                   </label>
+                  </div>
                 </div>
               </div>
 
@@ -2320,7 +3105,8 @@ export default function ProviderOnboardingPage() {
                     </>
                   ) : (
                     <>
-                      Continue to Service Area <ChevronRight className="w-4 h-4" />
+                      {isIncompleteMode ? 'Save Updates & Continue' : 'Continue to Service Area'}{' '}
+                      <ChevronRight className="w-4 h-4" />
                     </>
                   )}
                 </Button>
@@ -2362,7 +3148,11 @@ export default function ProviderOnboardingPage() {
                 );
               })()}
 
-              <div className="p-6 rounded-3xl bg-slate-900/70 border border-slate-800/80 backdrop-blur-xl space-y-6">
+              <div
+                data-checklist-key="serviceAreas"
+                className={`p-6 rounded-3xl bg-slate-900/70 border backdrop-blur-xl space-y-6 ${getSectionHighlightClass(['serviceAreas'])}`}
+              >
+                {renderSectionFlagBadge(['serviceAreas'])}
                 <div className="border-b border-slate-800 pb-4">
                   <h3 className="text-base font-bold text-white flex items-center gap-2">
                     <MapPin className="w-4 h-4 text-teal-400" /> Operational Territory & Pincodes
@@ -2496,7 +3286,11 @@ export default function ProviderOnboardingPage() {
               </div>
 
               {/* Commute & Capacity Matrix */}
-              <div className="p-6 rounded-3xl bg-slate-900/70 border border-slate-800/80 backdrop-blur-xl space-y-6">
+              <div
+                data-checklist-key="commuteLicense"
+                className={`p-6 rounded-3xl bg-slate-900/70 border backdrop-blur-xl space-y-6 ${getSectionHighlightClass(['commuteLicense'])}`}
+              >
+                {renderSectionFlagBadge(['commuteLicense'])}
                 <div className="border-b border-slate-800 pb-4">
                   <h3 className="text-base font-bold text-white flex items-center gap-2">
                     <Car className="w-4 h-4 text-teal-400" /> Commute & Travel Capacity
@@ -2690,7 +3484,8 @@ export default function ProviderOnboardingPage() {
                     </>
                   ) : (
                     <>
-                      Review & Generate Digital ID <ChevronRight className="w-4 h-4" />
+                      {isIncompleteMode ? 'Save Updates & Review' : 'Review & Generate Digital ID'}{' '}
+                      <ChevronRight className="w-4 h-4" />
                     </>
                   )}
                 </Button>
@@ -2856,8 +3651,20 @@ export default function ProviderOnboardingPage() {
               {/* ========================================================================= */}
               {(() => {
                 const feeConfig = REGISTRATION_FEES[selectedCountry] || REGISTRATION_FEES.India;
+                const feeFlagged = isChecklistFlagged(['registrationFee']);
+                const feeFocused = isChecklistFocused(['registrationFee']);
                 return (
-                  <div className="p-6 sm:p-8 rounded-3xl bg-gradient-to-br from-amber-500/15 via-slate-900/90 to-slate-950/90 border-2 border-amber-500/30 backdrop-blur-2xl shadow-2xl relative overflow-hidden space-y-6">
+                  <div
+                    data-checklist-key="registrationFee"
+                    className={`p-6 sm:p-8 rounded-3xl bg-gradient-to-br from-amber-500/15 via-slate-900/90 to-slate-950/90 border-2 backdrop-blur-2xl shadow-2xl relative overflow-hidden space-y-6 ${
+                      feeFocused
+                        ? 'border-amber-300 ring-2 ring-amber-400/60'
+                        : feeFlagged
+                          ? 'border-amber-400/70'
+                          : 'border-amber-500/30'
+                    }`}
+                  >
+                    {renderSectionFlagBadge(['registrationFee'])}
                     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
@@ -2908,7 +3715,7 @@ export default function ProviderOnboardingPage() {
                                     throw new Error('No hosted checkout URL was returned. Payment was not recorded.');
                                   }
                                   if (payload.status === 'PAID' || payload.paid) {
-                                    setIsFeePaid(true);
+                                    handleFeeConfirmed();
                                     return;
                                   }
                                   setPendingFeeOrderId(String(orderId));
@@ -2922,7 +3729,7 @@ export default function ProviderOnboardingPage() {
                                     }
                                   }
                                   if (confirmed) {
-                                    setIsFeePaid(true);
+                                    handleFeeConfirmed();
                                     setPendingFeeOrderId(null);
                                   } else {
                                     throw new Error('Checkout is still open. Complete payment, then tap Confirm payment.');
@@ -2961,7 +3768,7 @@ export default function ProviderOnboardingPage() {
                                   try {
                                     const verified = await providerApi.verifyCashfreeTransaction(pendingFeeOrderId);
                                     if (!verified.success) throw new Error(verified.message || 'Payment is not confirmed yet.');
-                                    setIsFeePaid(true);
+                                    handleFeeConfirmed();
                                     setPendingFeeOrderId(null);
                                   } catch (err: any) {
                                     alert(err?.message || 'Payment is not confirmed yet.');
@@ -3092,7 +3899,8 @@ export default function ProviderOnboardingPage() {
                     </>
                   ) : (
                     <>
-                      <ShieldCheck className="w-4 h-4 font-bold" /> Complete & Submit Profile
+                      <ShieldCheck className="w-4 h-4 font-bold" />{' '}
+                      {isIncompleteMode ? 'Submit Updates for Review' : 'Complete & Submit Profile'}
                     </>
                   )}
                 </Button>
@@ -3120,10 +3928,10 @@ export default function ProviderOnboardingPage() {
 
               <Button
                 type="button"
-                onClick={() => router.push('/')}
+                onClick={() => router.push('/onboarding-status')}
                 className="w-full h-12 rounded-2xl bg-gradient-to-r from-teal-400 to-emerald-500 text-slate-950 font-extrabold text-xs shadow-xl shadow-teal-500/30"
               >
-                RETURN TO HOME
+                VIEW APPLICATION STATUS
               </Button>
             </div>
           </div>
