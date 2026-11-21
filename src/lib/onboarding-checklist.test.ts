@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import {
   extractDocUrl,
@@ -259,4 +260,23 @@ test('isAdminIncompleteResubmissionMode separates brand-new fallback incomplete 
     ),
     true
   );
+});
+
+test('malformed focus query params parse safely and onboarding page never interpolates checklist keys into querySelector', () => {
+  assert.deepEqual(parseOnboardingQueryParams('?step=2&focus=%22cancelledCheque%5D'), {
+    step: 2,
+    focusKey: '"cancelledCheque]',
+  });
+
+  const onboardingPageSource = readFileSync(
+    new URL('../app/onboarding/page.tsx', import.meta.url),
+    'utf8'
+  );
+  assert.equal(
+    onboardingPageSource.includes('querySelector(`[data-checklist-key='),
+    false,
+    'onboarding/page.tsx must not interpolate checklist keys into document.querySelector'
+  );
+  assert.match(onboardingPageSource, /querySelectorAll<HTMLElement>\('\[data-checklist-key\]'\)/);
+  assert.match(onboardingPageSource, /el\.dataset\.checklistKey === key/);
 });

@@ -67,6 +67,15 @@ import {
   type ParityChecklistItem,
 } from '@/lib/onboarding-checklist';
 
+function findChecklistElement(key: string): HTMLElement | null {
+  if (typeof document === 'undefined' || !key) return null;
+  return (
+    Array.from(document.querySelectorAll<HTMLElement>('[data-checklist-key]')).find(
+      (el) => el.dataset.checklistKey === key
+    ) ?? null
+  );
+}
+
 // ── Mobile App Exact Stepper ────────────────────────────
 const STEPS = [
   { id: 0, stepNumber: 1, title: 'Personal Details', desc: 'Identity, Address & ID' },
@@ -1030,7 +1039,7 @@ export default function ProviderOnboardingPage() {
   useEffect(() => {
     if (!focusedChecklistKey || typeof document === 'undefined') return;
     const timer = window.setTimeout(() => {
-      const targetEl = document.querySelector(`[data-checklist-key="${focusedChecklistKey}"]`);
+      const targetEl = findChecklistElement(focusedChecklistKey);
       if (targetEl) {
         targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
@@ -1276,7 +1285,7 @@ export default function ProviderOnboardingPage() {
     setSuccessMsg('');
     setFocusedChecklistKey(item.key);
     setCurrentStep(item.step);
-    if (typeof window !== 'undefined' && !document.querySelector(`[data-checklist-key="${item.key}"]`)) {
+    if (typeof window !== 'undefined' && !findChecklistElement(item.key)) {
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
