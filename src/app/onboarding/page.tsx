@@ -56,6 +56,7 @@ import {
   extractDocName,
   extractDocUrl,
   getNextPendingStep,
+  isAdminIncompleteResubmissionMode,
   isFeeSettled,
   markParityStepResubmitted,
   normalizeChecklist,
@@ -556,7 +557,7 @@ export default function ProviderOnboardingPage() {
   };
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || isLoading) return;
 
     const { step: queryStep, focusKey: queryFocus } = parseOnboardingQueryParams(
       window.location.search
@@ -904,7 +905,13 @@ export default function ProviderOnboardingPage() {
         ? normalizedList.find((item) => item.key === queryFocus)
         : undefined;
 
-      if (skipDraftStepOverride) {
+      const isResubmissionMode = isAdminIncompleteResubmissionMode(
+        user,
+        normalizedList,
+        noteFromServer
+      );
+
+      if (isResubmissionMode) {
         setMaxUnlockedStep(4);
         const initialStep =
           queryStep !== null
@@ -985,27 +992,27 @@ export default function ProviderOnboardingPage() {
 
   // Keep server-authoritative fee & checklist metadata synced if `refreshUser` updates the same `_id`
   useEffect(() => {
-    if (!user?._id) return;
+    if (!user?._id || isLoading) return;
     const paid = Boolean(user.isOnboardingPaid);
     if (paid) setIsFeePaid(true);
     setIsFeeWaived(!paid && isFeeSettled(user));
 
     const serverChecklist = normalizeChecklist(user.incompleteChecklist);
-    setChecklistItems(
-      serverChecklist.map((item) =>
-        localResubmittedKeysRef.current.has(item.key) && item.status !== 'resubmitted'
-          ? { ...item, status: 'resubmitted' }
-          : item
-      )
+    const syncedChecklist = serverChecklist.map((item) =>
+      localResubmittedKeysRef.current.has(item.key) && item.status !== 'resubmitted'
+        ? { ...item, status: 'resubmitted' as const }
+        : item
     );
+    setChecklistItems(syncedChecklist);
     const nextNote =
       (user.incompleteNote || '').trim() ||
       (shouldSkipLocalDraftStepOverride(user) ? (user.rejectionReason || '').trim() : '');
     setIncompleteNote(nextNote);
-    if (shouldSkipLocalDraftStepOverride(user)) {
+    if (isAdminIncompleteResubmissionMode(user, syncedChecklist, nextNote)) {
       setMaxUnlockedStep(4);
     }
   }, [
+    isLoading,
     user?._id,
     user?.isOnboardingPaid,
     user?.isFeeWaived,
@@ -1013,6 +1020,7 @@ export default function ProviderOnboardingPage() {
     user?.createdAt,
     user?.onboardingStatus,
     user?.status,
+    user?.onboardingStep,
     user?.incompleteChecklist,
     user?.incompleteNote,
     user?.rejectionReason,
@@ -1208,7 +1216,7 @@ export default function ProviderOnboardingPage() {
     }
   };
 
-  const isIncompleteMode = shouldSkipLocalDraftStepOverride(user) || checklistItems.length > 0;
+  const isIncompleteMode = isAdminIncompleteResubmissionMode(user, checklistItems, incompleteNote);
   const showIncompleteBanner =
     isIncompleteMode &&
     (checklistItems.length > 0 ||
@@ -1615,11 +1623,19 @@ export default function ProviderOnboardingPage() {
       console.error('[Onboarding] Submission error:', err);
       if (currentStep === 4) {
         let latestChecklist = checklistItems;
+        if (err?.statusCode === 400) {
+          localResubmittedKeysRef.current.clear();
+        }
         if (user?._id && err?.statusCode === 400) {
           try {
             const refreshed = await providerApi.refreshUser(user._id);
             if (refreshed.success && refreshed.result) {
               latestChecklist = normalizeChecklist(refreshed.result.incompleteChecklist);
+              for (const item of latestChecklist) {
+                if (item.status !== 'resubmitted') {
+                  localResubmittedKeysRef.current.delete(item.key);
+                }
+              }
               setChecklistItems(latestChecklist);
               updateUserData(refreshed.result);
             }

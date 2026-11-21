@@ -281,6 +281,46 @@ export function shouldSkipLocalDraftStepOverride(
 }
 
 /**
+ * Distinguishes genuine admin-flagged incomplete resubmission mode from
+ * `providerApi.normalizeExpertProfile`'s `'incomplete'` fallback on brand-new unsubmitted drafts.
+ */
+export function isAdminIncompleteResubmissionMode(
+  user:
+    | {
+        onboardingStatus?: string | null;
+        status?: string | null;
+        onboardingStep?: number | null;
+        incompleteChecklist?: unknown[] | null;
+        incompleteNote?: string | null;
+      }
+    | null
+    | undefined,
+  checklistItems: ParityChecklistItem[] = [],
+  incompleteNote = ''
+): boolean {
+  const hasChecklist =
+    (Array.isArray(checklistItems) && checklistItems.length > 0) ||
+    (Array.isArray(user?.incompleteChecklist) &&
+      user.incompleteChecklist.filter(Boolean).length > 0);
+  if (hasChecklist) return true;
+
+  const hasNote =
+    incompleteNote.trim().length > 0 ||
+    Boolean(user?.incompleteNote && user.incompleteNote.trim().length > 0);
+  if (hasNote) return true;
+
+  if (!user || typeof user !== 'object') return false;
+
+  const accStatus = String(user.status || '').trim().toLowerCase();
+  if (accStatus === 'incomplete') return true;
+
+  const obStatus = String(user.onboardingStatus || '').trim().toLowerCase();
+  if (obStatus === 'incomplete' && (user.onboardingStep ?? 0) >= 5) return true;
+
+  return false;
+}
+
+/**
  * Marks all checklist items belonging to `step` as `'resubmitted'` without mutating inputs.
  */
 export function markParityStepResubmitted(

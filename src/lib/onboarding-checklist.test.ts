@@ -4,6 +4,7 @@ import {
   extractDocUrl,
   extractDocName,
   getNextPendingStep,
+  isAdminIncompleteResubmissionMode,
   markParityStepResubmitted,
   normalizeChecklist,
   parseOnboardingQueryParams,
@@ -162,4 +163,100 @@ test('parseOnboardingQueryParams safely parses step and focus query params', () 
     step: null,
     focusKey: null,
   });
+});
+
+test('isAdminIncompleteResubmissionMode separates brand-new fallback incomplete drafts from genuine admin-flagged profiles', () => {
+  // Brand-new Step 0/1 registrants hitting provider-api fallback `onboardingStatus: "incomplete"`
+  assert.equal(
+    isAdminIncompleteResubmissionMode(
+      {
+        onboardingStatus: 'incomplete',
+        status: 'Draft',
+        onboardingStep: 1,
+        incompleteChecklist: [],
+      },
+      [],
+      ''
+    ),
+    false
+  );
+  assert.equal(
+    isAdminIncompleteResubmissionMode(
+      {
+        onboardingStatus: 'incomplete',
+        status: undefined,
+        onboardingStep: 1,
+        incompleteChecklist: [],
+      },
+      [],
+      ''
+    ),
+    false
+  );
+  assert.equal(
+    isAdminIncompleteResubmissionMode(
+      {
+        onboardingStatus: 'incomplete',
+        status: 'Pending',
+        onboardingStep: 1,
+        incompleteChecklist: [],
+      },
+      [],
+      ''
+    ),
+    false
+  );
+
+  // Pending / approved accounts at step 5 without checklist or note are not in resubmission mode
+  assert.equal(
+    isAdminIncompleteResubmissionMode(
+      { onboardingStatus: 'pending', status: 'Pending', onboardingStep: 5, incompleteChecklist: [] },
+      [],
+      ''
+    ),
+    false
+  );
+  assert.equal(
+    isAdminIncompleteResubmissionMode(
+      { onboardingStatus: 'approved', status: 'Active', onboardingStep: 5, incompleteChecklist: [] },
+      [],
+      ''
+    ),
+    false
+  );
+  assert.equal(isAdminIncompleteResubmissionMode(null, [], ''), false);
+
+  // Genuine admin-flagged incomplete profiles
+  assert.equal(
+    isAdminIncompleteResubmissionMode(
+      { onboardingStatus: 'incomplete', status: 'Pending', onboardingStep: 1 },
+      normalizeChecklist([{ key: 'cancelledCheque', status: 'pending' }]),
+      ''
+    ),
+    true
+  );
+  assert.equal(
+    isAdminIncompleteResubmissionMode(
+      { onboardingStatus: 'incomplete', status: 'Pending', onboardingStep: 1, incompleteChecklist: [] },
+      [],
+      'Please re-upload clearer Aadhaar photo'
+    ),
+    true
+  );
+  assert.equal(
+    isAdminIncompleteResubmissionMode(
+      { onboardingStatus: 'incomplete', status: 'Incomplete', onboardingStep: 1, incompleteChecklist: [] },
+      [],
+      ''
+    ),
+    true
+  );
+  assert.equal(
+    isAdminIncompleteResubmissionMode(
+      { onboardingStatus: 'incomplete', status: 'Pending', onboardingStep: 5, incompleteChecklist: [] },
+      [],
+      ''
+    ),
+    true
+  );
 });
