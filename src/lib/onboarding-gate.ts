@@ -1,24 +1,150 @@
-export function needsOnboarding(user: {
+export type PostAuthRoute = '/login' | '/app' | '/onboarding' | '/onboarding-status';
+
+export type OnboardingDisplayState =
+  | 'pending'
+  | 'incomplete'
+  | 'rejected'
+  | 'suspended'
+  | 'approved';
+
+export interface OnboardingGateUser {
   _id?: string;
   isProfileActive?: boolean;
   onboardingStatus?: string;
   status?: string;
   onboardingStep?: number;
-} | null | undefined): boolean {
-  if (!user?._id) return true;
-  if (user.isProfileActive) return false;
-  const status = (user.onboardingStatus || user.status || '').toString().toLowerCase();
-  if (['approved', 'active'].includes(status)) return false;
-  return (user.onboardingStep ?? 0) < 5;
+  incompleteChecklist?: Array<{ key?: string; status?: string } | null> | null;
 }
 
-export function isOnboardingPendingReview(user: {
-  _id?: string;
-  onboardingStatus?: string;
-  status?: string;
-  onboardingStep?: number;
-} | null | undefined): boolean {
-  if (!user?._id) return false;
-  const status = (user.onboardingStatus || user.status || '').toString().toLowerCase();
-  return ['pending', 'under_review', 'under-review'].includes(status) && (user.onboardingStep ?? 0) >= 5;
+function normalizeGateStatus(value?: string): string {
+  return (value || '').toString().trim().toLowerCase().replace(/[\s-]+/g, '_');
+}
+
+function hasChecklistItems(user: OnboardingGateUser): boolean {
+  return Array.isArray(user.incompleteChecklist) && user.incompleteChecklist.filter(Boolean).length > 0;
+}
+
+const NON_APPROVED_STATUSES = new Set([
+  'pending',
+  'under_review',
+  'incomplete',
+  'draft',
+  'in_progress',
+]);
+
+function isApprovedUser(
+  user: OnboardingGateUser,
+  obStatus: string,
+  accStatus: string
+): boolean {
+  if (user.isProfileActive === true) return true;
+  if (obStatus === 'approved' || obStatus === 'active') return true;
+  if (obStatus === 'completed' && !NON_APPROVED_STATUSES.has(accStatus)) return true;
+  if (
+    (accStatus === 'approved' || accStatus === 'active') &&
+    !NON_APPROVED_STATUSES.has(obStatus)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Resolves the canonical post-authentication destination for an expert profile.
+ * Non-approved users (incomplete, pending, rejected, suspended) are never routed to `/app`.
+ */
+export function resolvePostAuthRoute(
+  user: OnboardingGateUser | null | undefined
+): PostAuthRoute {
+  if (!user?._id) return '/login';
+
+  const obStatus = normalizeGateStatus(user.onboardingStatus);
+  const accStatus = normalizeGateStatus(user.status);
+
+  if (
+    obStatus === 'rejected' ||
+    obStatus === 'suspended' ||
+    accStatus === 'rejected' ||
+    accStatus === 'suspended'
+  ) {
+    return '/onboarding-status';
+  }
+
+  if (isApprovedUser(user, obStatus, accStatus)) {
+    return '/app';
+  }
+
+  if (hasChecklistItems(user)) {
+    return '/onboarding-status';
+  }
+
+  if (obStatus === 'under_review' || accStatus === 'under_review') {
+    return '/onboarding-status';
+  }
+
+  if (
+    obStatus === 'incomplete' ||
+    obStatus === 'draft' ||
+    obStatus === 'in_progress' ||
+    accStatus === 'incomplete' ||
+    accStatus === 'draft' ||
+    accStatus === 'in_progress'
+  ) {
+    return (user.onboardingStep ?? 0) >= 5 ? '/onboarding-status' : '/onboarding';
+  }
+
+  if (obStatus === 'pending' && user.onboardingStep === undefined) {
+    return '/onboarding-status';
+  }
+
+  return (user.onboardingStep ?? 0) >= 5 ? '/onboarding-status' : '/onboarding';
+}
+
+/**
+ * Maps an authenticated expert record onto one of the 5 onboarding status screen states.
+ */
+export function resolveOnboardingDisplayState(
+  user: OnboardingGateUser | null | undefined
+): OnboardingDisplayState {
+  if (!user) return 'pending';
+
+  const obStatus = normalizeGateStatus(user.onboardingStatus);
+  const accStatus = normalizeGateStatus(user.status);
+
+  if (obStatus === 'rejected' || accStatus === 'rejected') return 'rejected';
+  if (obStatus === 'suspended' || accStatus === 'suspended') return 'suspended';
+  if (isApprovedUser(user, obStatus, accStatus)) return 'approved';
+
+  if (
+    hasChecklistItems(user) ||
+    obStatus === 'incomplete' ||
+    obStatus === 'draft' ||
+    obStatus === 'in_progress' ||
+    accStatus === 'incomplete' ||
+    accStatus === 'draft' ||
+    accStatus === 'in_progress'
+  ) {
+    return 'incomplete';
+  }
+
+  return 'pending';
+}
+
+/**
+ * Backward-compatible helper: returns true for any unauthenticated or non-approved user
+ * so gated callers never allow non-approved accounts into `/app`.
+ */
+export function needsOnboarding(user: OnboardingGateUser | null | undefined): boolean {
+  if (!user?._id) return true;
+  return resolvePostAuthRoute(user) !== '/app';
+}
+
+/**
+ * Backward-compatible helper: returns true whenever the expert should be on `/onboarding-status`
+ * (submitted for review, flagged with checklist items, rejected, or suspended).
+ */
+export function isOnboardingPendingReview(
+  user: OnboardingGateUser | null | undefined
+): boolean {
+  return resolvePostAuthRoute(user) === '/onboarding-status';
 }

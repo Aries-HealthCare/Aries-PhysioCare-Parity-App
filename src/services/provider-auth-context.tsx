@@ -3,10 +3,14 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { persistBrowserSession } from '@/lib/expert-session';
-import { isOnboardingPendingReview, needsOnboarding } from '@/lib/onboarding-gate';
+import {
+  isOnboardingPendingReview,
+  needsOnboarding,
+  resolvePostAuthRoute,
+} from '@/lib/onboarding-gate';
 import { MobileExpertProfile, providerApi } from './provider-api';
 
-export { isOnboardingPendingReview, needsOnboarding };
+export { isOnboardingPendingReview, needsOnboarding, resolvePostAuthRoute };
 
 interface ProviderAuthContextType {
   user: MobileExpertProfile | null;
@@ -53,16 +57,13 @@ export function ProviderAuthProvider({ children }: { children: React.ReactNode }
 
   const routeAfterAuth = (userData: MobileExpertProfile) => {
     applyUser(userData);
-    if (isOnboardingPendingReview(userData)) {
-      router.replace('/onboarding-status');
-      return;
-    }
-    if (needsOnboarding(userData)) {
-      router.replace('/onboarding');
+    const target = resolvePostAuthRoute(userData);
+    if (target !== '/app') {
+      router.replace(target);
       return;
     }
     const next = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('next') : null;
-    router.replace(next && next.startsWith('/') ? next : '/app');
+    router.replace(next && next.startsWith('/') && !next.startsWith('//') ? next : '/app');
   };
 
   useEffect(() => {
@@ -208,10 +209,9 @@ if ((pathname === '/login' || pathname === '/verify' || pathname === '/reset-pas
       return;
     }
     if (pathname?.startsWith('/app')) {
-      if (isOnboardingPendingReview(user) && pathname !== '/onboarding-status') {
-        router.replace('/onboarding-status');
-      } else if (needsOnboarding(user) && !pathname.startsWith('/onboarding')) {
-        router.replace('/onboarding');
+      const target = resolvePostAuthRoute(user);
+      if (target !== '/app') {
+        router.replace(target);
       }
     }
   }, [isLoading, user, pathname, router]);

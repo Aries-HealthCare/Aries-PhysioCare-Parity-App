@@ -21,6 +21,11 @@ import {
   clearStoredToken,
 } from './api-transport';
 import { getBackendOrigin } from '@/lib/backend-api-config';
+import {
+  extractDocUrl,
+  normalizeChecklist,
+  type ParityChecklistItem,
+} from '@/lib/onboarding-checklist';
 
 /**
  * Request prefix for mobile-shaped paths.
@@ -76,6 +81,8 @@ export interface WalletLedgerEntry {
   status: 'SUCCESS' | 'PENDING' | 'FAILED';
 }
 
+export type ExpertDocumentField = string | { name?: string; url?: string; uri?: string };
+
 export interface MobileExpertProfile {
   _id: string;
   id?: string;
@@ -103,9 +110,9 @@ export interface MobileExpertProfile {
   profilePhoto?: string;
   profileImageUrl?: string;
   profileImage?: string;
-  panCard?: string;
-  aadharCard?: string;
-  aadharCardBack?: string;
+  panCard?: ExpertDocumentField;
+  aadharCard?: ExpertDocumentField;
+  aadharCardBack?: ExpertDocumentField;
   licenseNumber?: string;
   specialization?: string;
   designation?: string;
@@ -135,7 +142,7 @@ export interface MobileExpertProfile {
     registrationCertificate?: string;
     degreeCertificate?: string;
     cvResume?: string;
-    extraCertifications?: string[];
+    extraCertifications?: ExpertDocumentField[];
   };
 
   // Step 2: Bank Info
@@ -149,6 +156,8 @@ export interface MobileExpertProfile {
     upiId?: string;
     panNumber?: string;
     cancelledCheque?: string;
+    bankStatement?: ExpertDocumentField;
+    bankVerificationLetter?: ExpertDocumentField;
   };
 
   // Step 3: Area of Service Info
@@ -164,12 +173,42 @@ export interface MobileExpertProfile {
     maxDistance?: number;
     travelTimePreference?: string;
     drivingLicenseNumber?: string;
-    drivingLicense?: string;
+    drivingLicense?: ExpertDocumentField;
   };
 
   onboardingStep?: number; // 0: Personal, 1: Professional, 2: Banking, 3: Area, 4: Review, 5: Done
-  onboardingStatus?: 'UNDER_REVIEW' | 'APPROVED' | 'INCOMPLETE' | 'REJECTED' | 'pending' | 'approved';
-  status?: 'Pending' | 'Approved' | 'Active' | 'Rejected' | 'Incomplete' | 'ACTIVE' | 'UNDER_REVIEW';
+  onboardingStatus?:
+    | 'UNDER_REVIEW'
+    | 'APPROVED'
+    | 'INCOMPLETE'
+    | 'REJECTED'
+    | 'SUSPENDED'
+    | 'pending'
+    | 'approved'
+    | 'incomplete'
+    | 'rejected'
+    | 'suspended'
+    | 'in_progress'
+    | 'under_review'
+    | 'completed'
+    | 'draft'
+    | string;
+  status?:
+    | 'Pending'
+    | 'Approved'
+    | 'Active'
+    | 'Rejected'
+    | 'Incomplete'
+    | 'Suspended'
+    | 'ACTIVE'
+    | 'UNDER_REVIEW'
+    | string;
+  incompleteChecklist?: ParityChecklistItem[];
+  incompleteNote?: string;
+  rejectionReason?: string;
+  isOnboardingPaid?: boolean;
+  isFeeWaived?: boolean;
+  paymentStatus?: string;
   isTherapistActive?: boolean;
   isProfileActive?: boolean;
   isTherapistSOS?: boolean;
@@ -448,11 +487,22 @@ class ProviderApiService {
     }
 
     const cleanMobile = (expert.phone || expert.mobileNo || fallbackPhone || '').replace(/\D/g, '').slice(-10);
+    const rawOnboardingStatus = String(expert.onboardingStatus || '').trim().toLowerCase();
+    const rawStatus = String(expert.status || '').trim().toLowerCase();
+    const isExplicitNonApproved =
+      ['incomplete', 'rejected', 'suspended', 'pending', 'under_review', 'under-review', 'in_progress', 'draft'].includes(
+        rawOnboardingStatus
+      ) ||
+      ['incomplete', 'rejected', 'suspended', 'pending', 'under_review', 'under-review', 'in_progress', 'draft'].includes(
+        rawStatus
+      );
     const hasCompleted =
-      expert.onboardingStatus === 'completed' ||
-      expert.status === 'Approved' ||
-      expert.isProfileActive === true ||
-      (expert.onboardingStep !== undefined && expert.onboardingStep >= 4 && (expert.licenseNumber || expert.professionalInfo?.registrationCertificate));
+      !isExplicitNonApproved &&
+      (expert.onboardingStatus === 'completed' ||
+        rawOnboardingStatus === 'approved' ||
+        rawStatus === 'approved' ||
+        rawStatus === 'active' ||
+        expert.isProfileActive === true);
 
     const pInfo = expert.professionalInfo || {};
     const bInfo = expert.bankInfo || {};
@@ -479,28 +529,36 @@ class ProviderApiService {
     };
     const notif = expert.settings?.notifications || expert.notifications || {};
 
-    const regCertUrl = pInfo.registrationCertificate?.url || (typeof pInfo.registrationCertificate === 'string' ? pInfo.registrationCertificate : expert.registrationCertificateUrl || expert.registrationCertificate);
-    const degCertUrl = pInfo.degreeCertificate?.url || (typeof pInfo.degreeCertificate === 'string' ? pInfo.degreeCertificate : expert.degreeCertificateUrl || expert.degreeCertificate);
-    const cvUrl = pInfo.cvResume?.url || (typeof pInfo.cvResume === 'string' ? pInfo.cvResume : expert.cvResumeUrl || expert.cvResume);
+    const regCertUrl = extractDocUrl(pInfo.registrationCertificate) || extractDocUrl(expert.registrationCertificateUrl) || extractDocUrl(expert.registrationCertificate) || undefined;
+    const degCertUrl = extractDocUrl(pInfo.degreeCertificate) || extractDocUrl(expert.degreeCertificateUrl) || extractDocUrl(expert.degreeCertificate) || undefined;
+    const cvUrl = extractDocUrl(pInfo.cvResume) || extractDocUrl(expert.cvResumeUrl) || extractDocUrl(expert.cvResume) || undefined;
 
     const extraCerts: string[] = [];
-    if (Array.isArray(pInfo.extraCertifications)) {
-      for (const c of pInfo.extraCertifications) {
-        if (typeof c === 'string') extraCerts.push(c);
-        else if (c && c.url) extraCerts.push(c.url);
-      }
-    } else if (Array.isArray(expert.extraCertifications)) {
-      for (const c of expert.extraCertifications) {
-        if (typeof c === 'string') extraCerts.push(c);
-        else if (c && c.url) extraCerts.push(c.url);
-      }
+    const rawExtraCerts = Array.isArray(pInfo.extraCertifications)
+      ? pInfo.extraCertifications
+      : Array.isArray(expert.extraCertifications)
+        ? expert.extraCertifications
+        : [];
+    for (const c of rawExtraCerts) {
+      const resolved = extractDocUrl(c);
+      if (resolved) extraCerts.push(resolved);
     }
 
-    const chequeUrl = bInfo.cancelledCheque?.url || (typeof bInfo.cancelledCheque === 'string' ? bInfo.cancelledCheque : expert.cancelledCheque);
-    const statementUrl = bInfo.bankStatement?.url || (typeof bInfo.bankStatement === 'string' ? bInfo.bankStatement : expert.bankStatement);
-    const letterUrl = bInfo.bankVerificationLetter?.url || (typeof bInfo.bankVerificationLetter === 'string' ? bInfo.bankVerificationLetter : expert.bankVerificationLetter);
+    const chequeUrl = extractDocUrl(bInfo.cancelledCheque) || extractDocUrl(expert.cancelledCheque) || undefined;
+    const statementUrl = extractDocUrl(bInfo.bankStatement) || extractDocUrl(expert.bankStatement) || undefined;
+    const letterUrl = extractDocUrl(bInfo.bankVerificationLetter) || extractDocUrl(expert.bankVerificationLetter) || undefined;
 
-    const licenseDocUrl = aInfo.drivingLicense?.url || (typeof aInfo.drivingLicense === 'string' ? aInfo.drivingLicense : expert.drivingLicenseUrl || expert.drivingLicense);
+    const licenseDocUrl = extractDocUrl(aInfo.drivingLicense) || extractDocUrl(expert.drivingLicenseUrl) || extractDocUrl(expert.drivingLicense) || undefined;
+    const photoUrl =
+      extractDocUrl(expert.profilePhoto) ||
+      extractDocUrl(expert.profileImageUrl) ||
+      extractDocUrl(expert.profileImage) ||
+      extractDocUrl(expert.photoUrl) ||
+      extractDocUrl(expert.photo) ||
+      undefined;
+    const aadharFrontUrl = extractDocUrl(expert.aadharCard) || undefined;
+    const aadharBackUrl = extractDocUrl(expert.aadharCardBack) || undefined;
+    const panDocUrl = extractDocUrl(expert.panCard) || extractDocUrl(bInfo.panCard) || undefined;
 
     return {
       _id: expert._id || expert.id || ('exp_' + cleanMobile),
@@ -532,9 +590,9 @@ class ProviderApiService {
       state: expert.state || '',
       area: expert.area || '',
       aadharNumber: expert.aadharNumber || '',
-      profilePhoto: expert.profilePhoto || expert.profileImageUrl || expert.profileImage || expert.photoUrl || expert.photo || undefined,
-      profileImageUrl: expert.profilePhoto || expert.profileImageUrl || expert.profileImage || expert.photoUrl || expert.photo || undefined,
-      profileImage: expert.profilePhoto || expert.profileImageUrl || expert.profileImage || expert.photoUrl || expert.photo || undefined,
+      profilePhoto: photoUrl,
+      profileImageUrl: photoUrl,
+      profileImage: photoUrl,
       panCard: expert.panCard || bInfo.panNumber,
       aadharCard: expert.aadharCard,
       aadharCardBack: expert.aadharCardBack,
@@ -562,10 +620,21 @@ class ProviderApiService {
       serviceAreas: aInfo.serviceAreas || expert.serviceAreas || [],
       targetPincodes: aInfo.targetPincodes || expert.targetPincodes || [],
       onboardingStep: expert.onboardingStep ?? (hasCompleted ? 5 : 0),
-      onboardingStatus: hasCompleted ? 'completed' : (expert.onboardingStatus || 'pending'),
+      onboardingStatus: hasCompleted
+        ? (expert.onboardingStatus || 'approved')
+        : (expert.onboardingStatus || (rawStatus === 'pending' && (expert.onboardingStep ?? 0) >= 5 ? 'pending' : 'incomplete')),
       status: expert.status || (hasCompleted ? 'Active' : 'Pending'),
-      isTherapistActive: expert.isProfileActive ?? expert.isTherapistActive ?? true,
-      isProfileActive: expert.isProfileActive ?? true,
+      incompleteChecklist: normalizeChecklist(expert.incompleteChecklist),
+      incompleteNote: typeof expert.incompleteNote === 'string' ? expert.incompleteNote.trim() : '',
+      rejectionReason: typeof expert.rejectionReason === 'string' ? expert.rejectionReason.trim() : '',
+      isOnboardingPaid: Boolean(expert.isOnboardingPaid ?? expert.isPaid),
+      isFeeWaived: Boolean(expert.isFeeWaived ?? expert.feeWaived),
+      paymentStatus: typeof expert.paymentStatus === 'string' ? expert.paymentStatus : undefined,
+      isTherapistActive: expert.isTherapistActive ?? expert.isProfileActive ?? false,
+      isProfileActive:
+        expert.isProfileActive ??
+        (!isExplicitNonApproved &&
+          (rawStatus === 'approved' || rawStatus === 'active' || rawOnboardingStatus === 'approved')),
       rating: expert.rating || expert.averageRating || 0,
       totalReviews: expert.totalReviews || expert.reviewCount || 0,
       walletAmount: expert.walletAmount ?? expert.walletBalance ?? 0,
@@ -650,13 +719,9 @@ class ProviderApiService {
       onboardingTourViewCount: toNum(tProfile.onboardingTourViewCount) ?? 0,
 
       // KYC document URLs (mobile document vault)
-      aadharCardUrl: expert.aadharCard?.url || (typeof expert.aadharCard === 'string' ? expert.aadharCard : undefined),
-      aadharCardBackUrl:
-        expert.aadharCardBack?.url || (typeof expert.aadharCardBack === 'string' ? expert.aadharCardBack : undefined),
-      panCardUrl:
-        expert.panCard?.url ||
-        (typeof expert.panCard === 'string' ? expert.panCard : undefined) ||
-        (typeof bInfo.panCard === 'string' ? bInfo.panCard : bInfo.panCard?.url),
+      aadharCardUrl: aadharFrontUrl,
+      aadharCardBackUrl: aadharBackUrl,
+      panCardUrl: panDocUrl,
       cvResumeUrl: cvUrl,
       extraCertificationsUrls: extraCerts,
       drivingLicenseNumber: aInfo.drivingLicenseNumber || expert.drivingLicenseNumber || '',
@@ -664,14 +729,12 @@ class ProviderApiService {
       bankCancelledChequeUrl: chequeUrl,
       bankStatementUrl: statementUrl,
       bankVerificationLetterUrl: letterUrl,
-      passportOrBrpUrl: expert.passportOrBrp?.url || (typeof expert.passportOrBrp === 'string' ? expert.passportOrBrp : undefined),
-      personalausweisUrl: expert.personalausweis?.url || (typeof expert.personalausweis === 'string' ? expert.personalausweis : undefined),
-      anmeldungDocumentUrl:
-        expert.anmeldungDocument?.url || (typeof expert.anmeldungDocument === 'string' ? expert.anmeldungDocument : undefined),
-      emiratesIdUrl: expert.emiratesId?.url || (typeof expert.emiratesId === 'string' ? expert.emiratesId : undefined),
-      passportVisaUrl: expert.passportVisa?.url || (typeof expert.passportVisa === 'string' ? expert.passportVisa : undefined),
-      governmentPhotoIdUrl:
-        expert.governmentPhotoId?.url || (typeof expert.governmentPhotoId === 'string' ? expert.governmentPhotoId : undefined),
+      passportOrBrpUrl: extractDocUrl(expert.passportOrBrp) || undefined,
+      personalausweisUrl: extractDocUrl(expert.personalausweis) || undefined,
+      anmeldungDocumentUrl: extractDocUrl(expert.anmeldungDocument) || undefined,
+      emiratesIdUrl: extractDocUrl(expert.emiratesId) || undefined,
+      passportVisaUrl: extractDocUrl(expert.passportVisa) || undefined,
+      governmentPhotoIdUrl: extractDocUrl(expert.governmentPhotoId) || undefined,
       ssnNumber: expert.ssnNumber ? String(expert.ssnNumber) : '',
       nationalInsuranceNumber: expert.nationalInsuranceNumber ? String(expert.nationalInsuranceNumber) : '',
 
@@ -2517,12 +2580,13 @@ export async function respondToLeadBroadcast(
   return accepted ? providerApi.expressInterest(leadId) : providerApi.passLead(leadId);
 }
 
-export function resolveProfileImage(photo?: string | null): string | null {
-  if (!photo || photo === 'null' || photo === 'undefined' || photo === '') return null;
-  if (photo.startsWith('http://') || photo.startsWith('https://') || photo.startsWith('data:')) {
-    return photo;
+export function resolveProfileImage(photo?: string | { name?: string; url?: string } | null): string | null {
+  const url = extractDocUrl(photo);
+  if (!url) return null;
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
+    return url;
   }
-  const clean = photo.startsWith('/') ? photo : `/${photo}`;
+  const clean = url.startsWith('/') ? url : `/${url}`;
   // Same normalisation as mobile's `UserModel._normalizeUrl` — relative asset paths are
   // resolved against the configured backend origin, not a hard-coded host.
   return `${getBackendOrigin()}${clean}`;
