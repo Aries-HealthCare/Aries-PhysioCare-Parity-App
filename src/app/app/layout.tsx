@@ -12,7 +12,7 @@ import { isNavActive, MOBILE_BOTTOM_TABS, NAV_GROUPS } from '@/components/ds/nav
 import { useProviderAuth } from '@/services/provider-auth-context';
 import { ProviderRealtimeProvider, useProviderRealtime } from '@/services/provider-realtime';
 import { providerApi, resolveProfileImage } from '@/services/provider-api';
-import { APP_VERSION } from '@/lib/expert-session';
+import { APP_VERSION, persistBrowserSession } from '@/lib/expert-session';
 import { FlashAlertHost } from '@/components/alerts/flash-alert-host';
 import { DesktopNotificationHost } from '@/components/alerts/desktop-notification-host';
 import { ProductTour } from '@/components/onboarding/product-tour';
@@ -131,7 +131,10 @@ function ProviderAppShell({ children }: { children: React.ReactNode }) {
   }, [isAuthenticated, revision.new_flash_alert, revision.new_broadcast, revision.lead_approved]);
 
   useEffect(() => {
-    if (!isLoading && !isAuthenticated) router.replace('/login');
+    if (!isLoading && !isAuthenticated) {
+      void persistBrowserSession(null);
+      router.replace('/login?force=1');
+    }
   }, [isLoading, isAuthenticated, router]);
 
   const locale = typeof window !== 'undefined' ? readLocale() : 'en';

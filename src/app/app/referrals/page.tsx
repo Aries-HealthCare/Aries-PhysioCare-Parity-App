@@ -45,7 +45,7 @@ export default function ProviderReferralsPage() {
     (user?.fullName
       ? user.fullName.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 8) + '1000'
       : 'ARIES1000');
-  const referralLink = `https://ariesphysiocare.com/register?ref=${referralCode}`;
+  const referralLink = `https://ariesphysiocare.in/registeration?ref=${referralCode}`;
 
   const loadReferrals = async () => {
     setIsLoading(true);

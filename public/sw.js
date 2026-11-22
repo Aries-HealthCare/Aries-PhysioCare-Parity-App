@@ -1,10 +1,10 @@
-/* AriesXpert provider PWA — app shell only. Never cache API or clinical payloads. */
-const CACHE = 'ariesxpert-shell-v1';
-const SHELL = ['/', '/login', '/app', '/manifest.json', '/images/Arieslogo.png'];
+/* AriesXpert provider PWA — static shell & push notifications only. Never cache API, RSC, or clinical payloads. */
+const CACHE = 'ariesxpert-shell-v3';
+const STATIC_SHELL = ['/manifest.json', '/aries-gold-emblem.png'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(SHELL).catch(() => undefined))
+    caches.open(CACHE).then((cache) => cache.addAll(STATIC_SHELL).catch(() => undefined))
   );
   self.skipWaiting();
 });
@@ -39,23 +39,23 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (request.method !== 'GET') return;
   if (url.origin !== self.location.origin) return;
-  if (url.pathname.startsWith('/api/')) return;
-  if (url.pathname.startsWith('/app/visits') || url.pathname.startsWith('/app/patients')) {
+  // Never intercept Next.js build assets, RSC payloads, or API endpoints
+  if (
+    url.pathname.startsWith('/api/') ||
+    url.pathname.startsWith('/_next/') ||
+    url.searchParams.has('_rsc') ||
+    request.headers.get('RSC') === '1'
+  ) {
     return;
   }
 
-  event.respondWith(
-    fetch(request)
-      .then((response) => {
-        if (response.ok && request.destination === 'document') {
-          const copy = response.clone();
-          caches.open(CACHE).then((cache) => cache.put(request, copy)).catch(() => undefined);
-        }
-        return response;
-      })
-      .catch(async () => {
+  // Only handle top-level document navigations with network-first
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request).catch(async () => {
         const cached = await caches.match(request);
-        return cached || caches.match('/login');
+        return cached || Response.error();
       })
-  );
+    );
+  }
 });

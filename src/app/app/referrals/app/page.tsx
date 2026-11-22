@@ -43,7 +43,7 @@ export default function AppReferralsDashboardPage() {
     user?.axId ||
     user?.ariesId ||
     (user?.fullName ? `${user.fullName.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 8)}1000` : 'ARIES1000');
-  const referralLink = `https://ariesphysiocare.com/register?ref=${encodeURIComponent(referralCode)}`;
+  const referralLink = `https://ariesphysiocare.in/registeration?ref=${encodeURIComponent(referralCode)}`;
 
   const load = useCallback(async () => {
     setLoading(true);

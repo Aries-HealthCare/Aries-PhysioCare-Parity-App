@@ -1769,6 +1769,15 @@ export default function ProviderOnboardingPage() {
               ))}
             </select>
           </div>
+
+          {!user?._id && (
+            <Link
+              href="/login?force=1"
+              className="px-3 py-1.5 rounded-xl bg-teal-500/15 hover:bg-teal-500/25 border border-teal-500/30 text-teal-300 font-bold text-xs transition-colors"
+            >
+              Sign In
+            </Link>
+          )}
         </div>
       </header>
 

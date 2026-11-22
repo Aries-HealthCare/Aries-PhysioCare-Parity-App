@@ -34,7 +34,7 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  metadataBase: new URL('https://app.ariesphysiocare.com'),
+  metadataBase: new URL(`https://${process.env.NEXT_PUBLIC_APP_DOMAIN || 'app.ariesphysiocare.in'}`),
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,

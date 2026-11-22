@@ -5,8 +5,8 @@
 
 export const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
-export const MAIN_DOMAIN = process.env.NEXT_PUBLIC_MAIN_DOMAIN || 'ariesphysiocare.com';
-export const APP_DOMAIN = process.env.NEXT_PUBLIC_APP_DOMAIN || 'app.ariesphysiocare.com';
+export const MAIN_DOMAIN = process.env.NEXT_PUBLIC_MAIN_DOMAIN || 'ariesphysiocare.in';
+export const APP_DOMAIN = process.env.NEXT_PUBLIC_APP_DOMAIN || 'app.ariesphysiocare.in';
 
 /**
  * Returns the fully qualified URL for the Parity App (app.ariesphysiocare.com)

@@ -124,25 +124,36 @@ export function ProviderAuthProvider({ children }: { children: React.ReactNode }
         await persistBrowserSession(token);
       }
 
+      let restoredUser: MobileExpertProfile | null = null;
       if (cached?._id) {
+        restoredUser = cached;
         applyUser(cached);
       }
 
       try {
         if (token && cached?._id) {
           const res = await providerApi.refreshUser(cached._id);
-          if (!cancelled && res.success && res.result) applyUser(res.result);
+          if (!cancelled && res.success && res.result) {
+            restoredUser = res.result;
+            applyUser(res.result);
+          }
         } else if (!token) {
           const sessionRaw = localStorage.getItem('cached_active_session');
           if (sessionRaw) {
             const session = JSON.parse(sessionRaw);
             const res = await providerApi.autoLogin({ email: session.email, phone: session.phone });
-            if (!cancelled && res.success && res.result) applyUser(res.result);
+            if (!cancelled && res.success && res.result) {
+              restoredUser = res.result;
+              applyUser(res.result);
+            }
           }
         }
       } catch {
         /* keep cached shell; screens will error if the backend is down */
       } finally {
+        if (!token && !restoredUser) {
+          await persistBrowserSession(null);
+        }
         if (!cancelled) setIsLoading(false);
       }
     };
@@ -242,7 +253,7 @@ export function ProviderAuthProvider({ children }: { children: React.ReactNode }
 
   useEffect(() => {
     if (isLoading || !user) return;
-if ((pathname === '/login' || pathname === '/verify' || pathname === '/reset-password') && typeof window !== 'undefined') {
+    if ((pathname === '/' || pathname === '/login' || pathname === '/verify' || pathname === '/reset-password') && typeof window !== 'undefined') {
       const force = new URLSearchParams(window.location.search).get('force');
       if (!force) routeAfterAuth(user);
       return;

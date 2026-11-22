@@ -253,7 +253,7 @@ function ProviderReferPatientContent() {
   };
 
   const handleShareWhatsApp = () => {
-    const text = `Book Certified Expert Doorstep Physical Therapy with Aries HealthCare! Top Physiotherapists with hospital-grade protocols in your city. Link: https://ariesphysiocare.com/book-appointment?ref=${user?.axId || 'AX-IND'}`;
+    const text = `Book Certified Expert Doorstep Physical Therapy with Aries HealthCare! Top Physiotherapists with hospital-grade protocols in your city. Link: https://ariesphysiocare.in/book-appointment?ref=${user?.axId || 'AX-IND'}`;
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
   };
 

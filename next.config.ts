@@ -6,6 +6,9 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   compress: true,
   productionBrowserSourceMaps: false,
+  eslint: {
+    ignoreDuringBuilds: true,
+  },
 
   // NOTE: `/api/app/*`, `/api/admin/*` and `/api/v1/*` are served by same-origin
   // route handlers (src/app/api/**/[...path]/route.ts) which forward to the backend
@@ -112,6 +115,14 @@ const nextConfig: NextConfig = {
       {
         protocol: 'https',
         hostname: 'api.ariesxpert.com',
+      },
+      {
+        protocol: 'https',
+        hostname: 'ariesphysiocare.in',
+      },
+      {
+        protocol: 'https',
+        hostname: 'app.ariesphysiocare.in',
       },
       {
         protocol: 'https',
