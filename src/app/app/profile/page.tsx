@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import Link from 'next/link';
 import { useProviderAuth } from '@/services/provider-auth-context';
 import { providerApi, resolveProfileImage } from '@/services/provider-api';
 import { DynamicAppLogo } from '@/components/ui/dynamic-app-logo';
@@ -191,22 +192,29 @@ export default function ProviderProfilePage() {
       if (u.clinicEstablishmentMonth) setClinicMonth(u.clinicEstablishmentMonth);
       if (u.clinicEstablishmentYear) setClinicYear(u.clinicEstablishmentYear);
 
-      // Banking
-      if (u.bankDetails) {
-        setBankName(u.bankDetails.bankName || '');
-        setAccountHolderName(u.bankDetails.accountHolderName || '');
-        setAccountNumber(u.bankDetails.accountNumber || '');
-        setConfirmAccountNumber(u.bankDetails.accountNumber || '');
-        setBankCode(u.bankDetails.ifscCode || u.bankDetails.sortCode || u.bankDetails.iban || '');
-        setUpiId(u.bankDetails.upiId || '');
-        setTaxNumber(u.bankDetails.panNumber || u.bankDetails.taxNumber || '');
+      // Banking (check canonical bankInfo first, then legacy bankDetails)
+      const bank = u.bankInfo || u.bankDetails;
+      if (bank) {
+        setBankName(bank.bankName || '');
+        setAccountHolderName(bank.accountHolderName || '');
+        setAccountNumber(bank.accountNumber || '');
+        setConfirmAccountNumber(bank.accountNumber || '');
+        setBankCode(bank.ifscCode || bank.sortCode || bank.iban || '');
+        setUpiId(bank.upiId || '');
+        setTaxNumber(bank.panNumber || bank.taxNumber || '');
       }
 
-      // Territory
-      if (u.targetPincodes && u.targetPincodes.length > 0) setPincodes(u.targetPincodes);
-      if (u.operatingRadiusKm || u.radius) setOperatingRadiusKm(String(u.operatingRadiusKm || u.radius || '10'));
-      if (u.commuteMode) setCommuteMode(u.commuteMode);
-      if (u.drivingLicenseNumber) setDrivingLicense(u.drivingLicenseNumber);
+      // Territory (check canonical areaOfServiceInfo first)
+      const areaInfo = u.areaOfServiceInfo || {};
+      const resolvedPins = areaInfo.targetPincodes?.length ? areaInfo.targetPincodes : u.targetPincodes || u.servicePincodes;
+      if (resolvedPins && resolvedPins.length > 0) setPincodes(resolvedPins);
+      if (areaInfo.serviceRadius || u.operatingRadiusKm || u.radius) {
+        setOperatingRadiusKm(String(areaInfo.serviceRadius || u.operatingRadiusKm || u.radius || '10'));
+      }
+      if (areaInfo.commuteType || u.commuteMode) setCommuteMode(areaInfo.commuteType || u.commuteMode);
+      if (areaInfo.drivingLicenseNumber || u.drivingLicenseNumber) {
+        setDrivingLicense(areaInfo.drivingLicenseNumber || u.drivingLicenseNumber);
+      }
 
       // Emergency
       if (u.emergencyContacts && u.emergencyContacts.length > 0) {
@@ -408,12 +416,21 @@ export default function ProviderProfilePage() {
           </div>
 
           {/* Quick Actions */}
-          <div className="flex items-center gap-3 w-full sm:w-auto">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+            <Button asChild variant="outline" size="sm" className="h-10 rounded-2xl text-xs font-bold">
+              <Link href="/app/profile/edit">Edit Profile</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm" className="h-10 rounded-2xl text-xs font-bold">
+              <Link href="/app/profile/service-area">Service Area</Link>
+            </Button>
+            <Button asChild variant="outline" size="sm" className="h-10 rounded-2xl text-xs font-bold">
+              <Link href="/app/profile/digital-id">Digital ID</Link>
+            </Button>
             <Button
               type="button"
               onClick={handleSaveAll}
               disabled={isSaving}
-              className="w-full sm:w-auto h-11 px-6 rounded-2xl font-bold gap-2 shadow-md shadow-primary/20"
+              className="w-full sm:w-auto h-10 px-5 rounded-2xl font-bold gap-2 shadow-md shadow-primary/20 text-xs"
             >
               {isSaving ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
