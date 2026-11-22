@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getBackendOrigin } from './backend-api-config';
+import { buildUpstreamHeaders, STRIPPED_RESPONSE_HEADERS } from './api-proxy-headers';
+
+export { buildUpstreamHeaders };
 
 /**
  * Same-origin reverse proxy to the AriesXpert backend.
@@ -29,27 +32,8 @@ export function createBackendProxy(prefix: 'app' | 'admin' | 'v1' | 'root') {
         : `${getBackendOrigin()}/api/${prefix}/${subpath}${url.search}`;
 
     try {
-      const headers: Record<string, string> = {};
-      req.headers.forEach((value, key) => {
-        // Hop-by-hop and host-scoped headers must not be forwarded upstream.
-        if (
-          ![
-            'host',
-            'connection',
-            'content-length',
-            'accept-encoding',
-            'transfer-encoding',
-            'cookie',
-          ].includes(key.toLowerCase())
-        ) {
-          headers[key] = value;
-        }
-      });
-
       const sessionToken = req.cookies.get('ax_expert_session')?.value;
-      if (sessionToken && !headers.authorization && !headers.Authorization) {
-        headers.Authorization = `Bearer ${sessionToken}`;
-      }
+      const headers = buildUpstreamHeaders(req.headers, sessionToken);
 
       const method = req.method;
       const body = ['GET', 'HEAD'].includes(method) ? undefined : await req.arrayBuffer();
@@ -65,8 +49,7 @@ export function createBackendProxy(prefix: 'app' | 'admin' | 'v1' | 'root') {
       const responseBody = await upstreamRes.arrayBuffer();
       const responseHeaders = new Headers();
       upstreamRes.headers.forEach((val, key) => {
-        // Content-encoding/length describe the already-decoded upstream payload.
-        if (!['content-encoding', 'content-length', 'transfer-encoding'].includes(key.toLowerCase())) {
+        if (!STRIPPED_RESPONSE_HEADERS.has(key.toLowerCase())) {
           responseHeaders.set(key, val);
         }
       });

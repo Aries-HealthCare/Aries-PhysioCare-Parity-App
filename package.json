@@ -11,7 +11,7 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test src/lib/visit-status.test.ts src/lib/expert-session.test.ts src/services/unwrap.test.ts src/services/auth-routing.test.ts src/lib/onboarding-checklist.test.ts src/lib/i18n.test.ts src/lib/dispatch-invite.test.ts src/lib/dashboard-analytics.test.ts src/lib/wave2-helpers.test.ts src/lib/gaming-helpers.test.ts src/lib/sso-handoff.test.ts"
+    "test": "node --experimental-strip-types --test src/lib/visit-status.test.ts src/lib/expert-session.test.ts src/services/unwrap.test.ts src/services/auth-routing.test.ts src/lib/onboarding-checklist.test.ts src/lib/i18n.test.ts src/lib/dispatch-invite.test.ts src/lib/dashboard-analytics.test.ts src/lib/wave2-helpers.test.ts src/lib/gaming-helpers.test.ts src/lib/sso-handoff.test.ts src/lib/api-proxy.test.ts"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "^1.2.1",

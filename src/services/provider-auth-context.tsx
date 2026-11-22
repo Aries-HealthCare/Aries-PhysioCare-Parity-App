@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { persistBrowserSession } from '@/lib/expert-session';
+import { persistBrowserSession, resolveSafeNextPath } from '@/lib/expert-session';
 import { parseSsoHash, stripSsoHashFromUrl } from '@/lib/sso-handoff';
 import {
   isOnboardingPendingReview,
@@ -20,7 +20,7 @@ interface ProviderAuthContextType {
   isSsoAuthenticating: boolean;
   dutyStatus: boolean;
   toggleDutyStatus: () => Promise<void>;
-  loginWithPhoneOtp: (phone: string, otp: string) => Promise<boolean>;
+  loginWithPhoneOtp: (phone: string, otp: string, dialCode?: string) => Promise<boolean>;
   loginWithEmail: (email: string, pass: string) => Promise<boolean>;
   loginWithEmailOtp: (email: string, otp: string) => Promise<boolean>;
   logout: () => void;
@@ -58,15 +58,19 @@ export function ProviderAuthProvider({ children }: { children: React.ReactNode }
     if (userData) persistUser(userData);
   };
 
-  const routeAfterAuth = (userData: MobileExpertProfile) => {
+  const routeAfterAuth = (userData: MobileExpertProfile, hardNavigate = false) => {
     applyUser(userData);
     const target = resolvePostAuthRoute(userData);
-    if (target !== '/app') {
-      router.replace(target);
+    let destination = target;
+    if (target === '/app' && typeof window !== 'undefined') {
+      const next = new URLSearchParams(window.location.search).get('next');
+      destination = resolveSafeNextPath(next, window.location.origin) as typeof target;
+    }
+    if (hardNavigate && typeof window !== 'undefined') {
+      window.location.replace(destination);
       return;
     }
-    const next = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('next') : null;
-    router.replace(next && next.startsWith('/') && !next.startsWith('//') ? next : '/app');
+    router.replace(destination);
   };
 
   useEffect(() => {
@@ -170,11 +174,14 @@ export function ProviderAuthProvider({ children }: { children: React.ReactNode }
     if (res.success && res.result) applyUser(res.result);
   };
 
-  const loginWithPhoneOtp = async (phone: string, otp: string): Promise<boolean> => {
+  const loginWithPhoneOtp = async (phone: string, otp: string, dialCode?: string): Promise<boolean> => {
     setIsLoading(true);
     try {
-      const res = await providerApi.verifyOTP(phone, otp);
-      if (!res.success) return false;
+      const res = await providerApi.verifyOTP(phone, otp, dialCode);
+      if (!res.success) {
+        if (res.message) throw new Error(res.message);
+        return false;
+      }
       const cleanPhone = phone.replace(/\D/g, '').slice(-10);
       let userData = res.result;
       if (!userData) {
@@ -183,7 +190,7 @@ export function ProviderAuthProvider({ children }: { children: React.ReactNode }
       }
       if (!userData?._id && !userData?.phone) return false;
       if (res.token) await persistBrowserSession(res.token);
-      routeAfterAuth(userData as MobileExpertProfile);
+      routeAfterAuth(userData as MobileExpertProfile, true);
       return true;
     } finally {
       setIsLoading(false);
@@ -194,9 +201,12 @@ export function ProviderAuthProvider({ children }: { children: React.ReactNode }
     setIsLoading(true);
     try {
       const res = await providerApi.loginFromEmail(email, pass);
-      if (!res.success || !res.result) return false;
+      if (!res.success || !res.result) {
+        if (res.message) throw new Error(res.message);
+        return false;
+      }
       if (res.token) await persistBrowserSession(res.token);
-      routeAfterAuth(res.result);
+      routeAfterAuth(res.result, true);
       return true;
     } finally {
       setIsLoading(false);
@@ -207,16 +217,19 @@ export function ProviderAuthProvider({ children }: { children: React.ReactNode }
     setIsLoading(true);
     try {
       const verified = await providerApi.verifyEmailOTP(email, otp);
-      if (!verified.success) return false;
+      if (!verified.success) {
+        if (verified.message) throw new Error(verified.message);
+        return false;
+      }
       if (verified.token && verified.result) {
         await persistBrowserSession(verified.token);
-        routeAfterAuth(verified.result);
+        routeAfterAuth(verified.result, true);
         return true;
       }
       const restored = await providerApi.autoLogin({ email });
       if (!restored.success || !restored.result) return false;
       if (restored.token) await persistBrowserSession(restored.token);
-      routeAfterAuth(restored.result);
+      routeAfterAuth(restored.result, true);
       return true;
     } finally {
       setIsLoading(false);

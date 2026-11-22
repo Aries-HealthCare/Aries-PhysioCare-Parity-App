@@ -134,7 +134,7 @@ export function LoginPortal() {
 
     try {
       const fullPhone = `${currentCountry.dialCode}${cleanNumber}`;
-      const res = await providerApi.sendOTP(fullPhone);
+      const res = await providerApi.sendOTP(fullPhone, currentCountry.dialCode);
 
       if (res.success) {
         if (rememberMe) {
@@ -171,7 +171,7 @@ export function LoginPortal() {
     try {
       const cleanNumber = mobileNumber.replace(/\D/g, '');
       const fullPhone = `${currentCountry.dialCode}${cleanNumber}`;
-      const success = await loginWithPhoneOtp(fullPhone, otpValue);
+      const success = await loginWithPhoneOtp(fullPhone, otpValue, currentCountry.dialCode);
 
       if (success) {
         setSuccessMessage('Verification successful! Welcome back.');

@@ -424,15 +424,24 @@ class ProviderApiService {
    * POST /api/app/expert/sendOrResendOTPtoUser
    * Same body as `ApiService.sendOrResendOTPtoUser` / `expertLoginFromMobile`.
    */
-  public async sendOTP(mobileNo: string): Promise<{ success: boolean; message?: string; code?: string }> {
-    const cleanMobile = mobileNo.replace(/\D/g, '').slice(-10);
-    const res = await apiPost('/api/app/expert/sendOrResendOTPtoUser', {
-      mobileNo: cleanMobile,
-      cc: '91',
-    });
+  public async sendOTP(
+    mobileNo: string,
+    dialCode?: string
+  ): Promise<{ success: boolean; message?: string; code?: string }> {
+    const digits = mobileNo.replace(/\D/g, '');
+    const cc = (dialCode || '').replace(/\D/g, '') || (digits.length > 10 ? digits.slice(0, digits.length - 10) : '91');
+    const cleanMobile = digits.startsWith(cc) && digits.length > cc.length ? digits.slice(cc.length) : digits.slice(-10);
+    const res = await apiPost(
+      '/api/app/expert/sendOrResendOTPtoUser',
+      {
+        mobileNo: cleanMobile,
+        cc,
+      },
+      { includeAuth: false }
+    );
     return {
       success: res.success !== false,
-      message: res.message || `Verification code sent to +91 ${cleanMobile}`,
+      message: res.message || `Verification code sent to +${cc} ${cleanMobile}`,
       code: (res as any).code,
     };
   }
@@ -447,13 +456,21 @@ class ProviderApiService {
    */
   public async verifyOTP(
     mobileNo: string,
-    otp: string
+    otp: string,
+    dialCode?: string
   ): Promise<{ success: boolean; token?: string; result?: MobileExpertProfile; message?: string }> {
-    const cleanMobile = mobileNo.replace(/\D/g, '').slice(-10);
-    const res = await apiPost('/api/app/expert/verifyOTPofUser', {
-      mobileNo: cleanMobile,
-      otp,
-    });
+    const digits = mobileNo.replace(/\D/g, '');
+    const cc = (dialCode || '').replace(/\D/g, '') || (digits.length > 10 ? digits.slice(0, digits.length - 10) : '91');
+    const cleanMobile = digits.startsWith(cc) && digits.length > cc.length ? digits.slice(cc.length) : digits.slice(-10);
+    const res = await apiPost(
+      '/api/app/expert/verifyOTPofUser',
+      {
+        mobileNo: cleanMobile,
+        cc,
+        otp,
+      },
+      { includeAuth: false }
+    );
 
     const token =
       (res as any).accessToken ||
@@ -779,17 +796,33 @@ class ProviderApiService {
   public async loginFromEmail(
     email: string,
     password: string
-  ): Promise<{ success: boolean; token?: string; result?: MobileExpertProfile; message?: string }> {
-    const res = await apiPost('/api/app/expert/loginFromEmail', {
-      email: email.toLowerCase().trim(),
-      password,
-    });
+  ): Promise<{
+    success: boolean;
+    token?: string;
+    result?: MobileExpertProfile;
+    message?: string;
+    resetRequired?: boolean;
+  }> {
+    const res = await apiPost(
+      '/api/app/expert/loginFromEmail',
+      {
+        email: email.toLowerCase().trim(),
+        password,
+      },
+      { includeAuth: false }
+    );
 
     const token = (res as any).accessToken || (res as any).token || (res as any).result?.token;
     if (token) this.saveToken(token);
 
     if (res.success === false) {
-      return { success: false, message: res.message || 'Those credentials were not accepted.' };
+      const resetRequired = Boolean((res as any).resetRequired || res.message === 'passwordResetRequired');
+      const friendlyMessage = resetRequired
+        ? 'A password reset is required for this account. Please click "Forgot Password?" or sign in with Phone OTP.'
+        : res.message === 'credentialNotMatched'
+          ? 'Invalid email or password. Please verify your credentials or sign in with Phone OTP.'
+          : res.message || 'Those credentials were not accepted.';
+      return { success: false, message: friendlyMessage, resetRequired };
     }
 
     const expert = (res as any).expert || (res as any).result?.expert || (res as any).result;
@@ -810,7 +843,7 @@ class ProviderApiService {
     phone: string
   ): Promise<{ success: boolean; result?: MobileExpertProfile; message?: string }> {
     const clean = phone.replace(/\D/g, '').slice(-10);
-    const res = await apiPost('/api/app/expert/checkOnboardingStatus', { phone: clean });
+    const res = await apiPost('/api/app/expert/checkOnboardingStatus', { phone: clean }, { includeAuth: false });
     const rawExpert = (res as any).expert || res.result || res.data;
     return {
       success: res.success !== false,
@@ -2552,7 +2585,7 @@ class ProviderApiService {
     result?: MobileExpertProfile;
     message?: string;
   }> {
-    const res = await apiPost('/api/app/expert/autoLogin', payload);
+    const res = await apiPost('/api/app/expert/autoLogin', payload, { includeAuth: false });
     const token = (res as any).accessToken || (res as any).token || (res as any).result?.token;
     if (token) this.saveToken(token);
     const expert = (res as any).expert || (res as any).result?.expert || (res as any).result;
@@ -2565,7 +2598,7 @@ class ProviderApiService {
   }
 
   public async sendEmailOTP(email: string): Promise<{ success: boolean; message?: string }> {
-    const res = await apiPost('/api/app/expert/sendEmailOTP', { email: email.toLowerCase().trim() });
+    const res = await apiPost('/api/app/expert/sendEmailOTP', { email: email.toLowerCase().trim() }, { includeAuth: false });
     return { success: res.success !== false, message: res.message };
   }
 
@@ -2575,7 +2608,7 @@ class ProviderApiService {
     result?: MobileExpertProfile;
     message?: string;
   }> {
-    const res = await apiPost('/api/app/expert/verifyEmailOTP', { email: email.toLowerCase().trim(), otp });
+    const res = await apiPost('/api/app/expert/verifyEmailOTP', { email: email.toLowerCase().trim(), otp }, { includeAuth: false });
     const token = (res as any).accessToken || (res as any).token || (res as any).result?.token;
     if (token) this.saveToken(token);
     const expert = (res as any).expert || (res as any).result?.expert || (res as any).result;
@@ -2588,24 +2621,25 @@ class ProviderApiService {
   }
 
   public async requestEmailVerification(email: string): Promise<{ success: boolean; message?: string }> {
-    const res = await apiPost('/api/app/expert/requestEmailVerification', { email: email.toLowerCase().trim() });
+    const res = await apiPost('/api/app/expert/requestEmailVerification', { email: email.toLowerCase().trim() }, { includeAuth: false });
     return { success: res.success !== false, message: res.message };
   }
 
   public async checkEmailVerificationStatus(email: string): Promise<any> {
     const res = await apiGet(
-      `/api/app/expert/checkEmailVerificationStatus?email=${encodeURIComponent(email.toLowerCase().trim())}`
+      `/api/app/expert/checkEmailVerificationStatus?email=${encodeURIComponent(email.toLowerCase().trim())}`,
+      { includeAuth: false }
     );
     return unwrap(res);
   }
 
   public async forgotPassword(email: string): Promise<{ success: boolean; message?: string }> {
-    const res = await apiPost('/api/app/expert/forgotPassword', { email: email.toLowerCase().trim() });
+    const res = await apiPost('/api/app/expert/forgotPassword', { email: email.toLowerCase().trim() }, { includeAuth: false });
     return { success: res.success !== false, message: res.message };
   }
 
   public async sendPasswordResetOTP(email: string): Promise<{ success: boolean; message?: string }> {
-    const res = await apiPost('/api/app/expert/sendPasswordResetOTP', { email: email.toLowerCase().trim() });
+    const res = await apiPost('/api/app/expert/sendPasswordResetOTP', { email: email.toLowerCase().trim() }, { includeAuth: false });
     return { success: res.success !== false, message: res.message };
   }
 
@@ -2614,10 +2648,14 @@ class ProviderApiService {
     resetToken?: string;
     message?: string;
   }> {
-    const res = await apiPost('/api/app/expert/verifyPasswordResetOTP', {
-      email: email.toLowerCase().trim(),
-      otp,
-    });
+    const res = await apiPost(
+      '/api/app/expert/verifyPasswordResetOTP',
+      {
+        email: email.toLowerCase().trim(),
+        otp,
+      },
+      { includeAuth: false }
+    );
     return {
       success: res.success !== false,
       resetToken: (res as any).resetToken || (res as any).token,
@@ -2629,7 +2667,7 @@ class ProviderApiService {
     success: boolean;
     message?: string;
   }> {
-    const res = await apiPost('/api/app/expert/resetPassword', payload);
+    const res = await apiPost('/api/app/expert/resetPassword', payload, { includeAuth: false });
     return { success: res.success !== false, message: res.message };
   }
 
