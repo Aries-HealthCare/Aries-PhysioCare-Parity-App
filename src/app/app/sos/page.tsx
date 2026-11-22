@@ -171,8 +171,13 @@ export default function ProviderSOSHubPage() {
   } | null>(null);
   const pinInputRef = useRef<HTMLInputElement | null>(null);
   const overpassAbortRef = useRef<AbortController | null>(null);
+  const isMountedRef = useRef(true);
+  const activeSessionIdRef = useRef<string | null>(null);
+  const cameraRequestIdRef = useRef(0);
+  activeSessionIdRef.current = session?.id ?? null;
 
   const stopSafetyCamera = useCallback(() => {
+    cameraRequestIdRef.current += 1;
     if (cameraStreamRef.current) {
       cameraStreamRef.current.getTracks().forEach((track) => {
         try {
@@ -225,7 +230,11 @@ export default function ProviderSOSHubPage() {
     setFacilitiesLoading(true);
     setFacilitiesError(null);
 
-    const timeoutId = setTimeout(() => controller.abort(), OVERPASS_TIMEOUT_MS);
+    let didTimeout = false;
+    const timeoutId = setTimeout(() => {
+      didTimeout = true;
+      controller.abort();
+    }, OVERPASS_TIMEOUT_MS);
 
     try {
       const overpassQuery = `
@@ -249,6 +258,7 @@ out center 50;
       }
 
       const data = await res.json();
+      if (overpassAbortRef.current !== controller) return;
       const elements: any[] = Array.isArray(data?.elements) ? data.elements : [];
 
       const seen = new Set<string>();
@@ -292,13 +302,15 @@ out center 50;
       parsed.sort((a, b) => a.distanceKm - b.distanceKm);
       setFacilities(parsed.slice(0, 20));
     } catch (err: any) {
-      if (err?.name === 'AbortError') {
+      if (overpassAbortRef.current !== controller) return;
+      if (didTimeout || err?.name === 'AbortError') {
         setFacilitiesError('Nearby facility lookup timed out. Tap Retry or use Quick Dials directly.');
       } else {
         setFacilitiesError('Could not load nearby hospitals & police stations right now.');
       }
     } finally {
       clearTimeout(timeoutId);
+      if (overpassAbortRef.current !== controller) return;
       setFacilitiesLoading(false);
     }
   }, []);
@@ -373,7 +385,9 @@ out center 50;
 
   // ── Ensure camera & siren are always cleaned up on unmount ────────────────────
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
+      isMountedRef.current = false;
       stopSafetyCamera();
       stopSiren();
     };
@@ -514,7 +528,7 @@ out center 50;
 
   // ── Camera & Mic Safety Monitor toggle ────────────────────────────────────────
   const toggleSafetyCamera = async () => {
-    if (cameraActive) {
+    if (cameraActive || cameraStarting) {
       stopSafetyCamera();
       return;
     }
@@ -526,10 +540,25 @@ out center 50;
       return;
     }
 
+    const requestId = ++cameraRequestIdRef.current;
     setCameraStarting(true);
     setCameraError(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      if (
+        !isMountedRef.current ||
+        !activeSessionIdRef.current ||
+        cameraRequestIdRef.current !== requestId
+      ) {
+        stream.getTracks().forEach((t) => {
+          try {
+            t.stop();
+          } catch {
+            /* ignore */
+          }
+        });
+        return;
+      }
       cameraStreamRef.current = stream;
       setCameraActive(true);
       toast({
@@ -537,6 +566,7 @@ out center 50;
         description: 'Local camera & mic preview is running. Tracks stop automatically when resolved.',
       });
     } catch (err: any) {
+      if (!isMountedRef.current || cameraRequestIdRef.current !== requestId) return;
       const msg =
         err?.name === 'NotAllowedError'
           ? 'Camera or microphone permission was denied. Your GPS SOS alert remains active.'
@@ -544,7 +574,9 @@ out center 50;
       setCameraError(msg);
       toast({ variant: 'destructive', title: 'Safety monitor unavailable', description: msg });
     } finally {
-      setCameraStarting(false);
+      if (isMountedRef.current && cameraRequestIdRef.current === requestId) {
+        setCameraStarting(false);
+      }
     }
   };
 
@@ -856,7 +888,6 @@ out center 50;
                 <Button
                   type="button"
                   onClick={() => void toggleSafetyCamera()}
-                  disabled={cameraStarting}
                   className="h-12 rounded-2xl border border-white/30 bg-white/15 font-outfit text-xs font-extrabold text-white hover:bg-white/25"
                 >
                   {cameraStarting ? (
@@ -866,7 +897,11 @@ out center 50;
                   ) : (
                     <Camera className="mr-2 h-4 w-4" />
                   )}
-                  {cameraActive ? 'Stop Safety Monitor' : 'Start Camera & Mic Monitor'}
+                  {cameraStarting
+                    ? 'Stop Camera Start'
+                    : cameraActive
+                      ? 'Stop Safety Monitor'
+                      : 'Start Camera & Mic Monitor'}
                 </Button>
               </div>
 

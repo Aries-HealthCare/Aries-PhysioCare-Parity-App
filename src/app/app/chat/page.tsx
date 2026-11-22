@@ -102,6 +102,16 @@ function extractMessageText(message: any): string {
   return typeof text === 'string' ? text : String(text);
 }
 
+function extractLastMessageText(chat: any): string {
+  const last = chat?.lastMessage;
+  if (typeof last === 'string') return last;
+  if (last && typeof last === 'object') {
+    const text = last.content ?? last.text ?? last.message ?? '';
+    return typeof text === 'string' ? text : '';
+  }
+  return '';
+}
+
 function extractMessageSenderId(message: any): string {
   const raw =
     message?.sender?._id ??
@@ -192,6 +202,8 @@ function ChatPageContent() {
 
   const { joinChat, leaveChat, subscribe } = useProviderRealtime();
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const activeIdRef = useRef<string | null>(null);
+  activeIdRef.current = activeId;
 
   const currentUserIds = useMemo(() => {
     const ids = new Set<string>();
@@ -231,7 +243,7 @@ function ChatPageContent() {
     return chats.filter((chat) => {
       const title = resolveChatTitle(chat).toLowerCase();
       const dept = String(chat?.department || '').toLowerCase();
-      const preview = String(chat?.lastMessage?.text || chat?.lastMessage || '').toLowerCase();
+      const preview = extractLastMessageText(chat).toLowerCase();
       return title.includes(q) || dept.includes(q) || preview.includes(q);
     });
   }, [chats, searchQuery]);
@@ -248,12 +260,14 @@ function ChatPageContent() {
     if (showSpinner) setLoadingMessages(true);
     try {
       const list = await providerApi.getChatMessages(roomId);
+      if (activeIdRef.current !== roomId) return;
       setMessages((prev) => mergeChatMessages(prev.filter((m) => m.__optimistic), Array.isArray(list) ? list : []));
       setMsgError(null);
     } catch (err: any) {
+      if (activeIdRef.current !== roomId) return;
       setMsgError(err?.message || 'Could not load messages for this conversation.');
     } finally {
-      if (showSpinner) setLoadingMessages(false);
+      if (showSpinner && activeIdRef.current === roomId) setLoadingMessages(false);
     }
   }, []);
 
@@ -609,9 +623,7 @@ function ChatPageContent() {
                     const support = isSupportChatRoom(chat);
                     const ended = String(chat?.status || '').toLowerCase() === 'ended';
                     const preview =
-                      typeof chat?.lastMessage === 'string'
-                        ? chat.lastMessage
-                        : chat?.lastMessage?.text || chat?.lastMessage?.content || chat?.department || 'Tap to view messages';
+                      extractLastMessageText(chat) || chat?.department || 'Tap to view messages';
                     const timeLabel = formatMessageTime(chat?.updatedAt || chat?.lastMessageAt || chat?.createdAt);
 
                     return (

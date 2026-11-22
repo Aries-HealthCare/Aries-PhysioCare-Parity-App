@@ -28,6 +28,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { useProviderAuth } from '@/services/provider-auth-context';
 import { providerApi } from '@/services/provider-api';
+import { ApiError } from '@/services/api-transport';
 
 const TIME_SLOTS = [
   '08:00 AM',
@@ -185,8 +186,12 @@ export default function AppointmentDetailPage({ params }: PageProps) {
       setRescheduleOpen(false);
       await fetchAppointment();
     } catch (err: any) {
+      const isConflict =
+        err instanceof ApiError
+          ? err.statusCode === 409
+          : err?.statusCode === 409 || err?.status === 409;
       const msg = String(err?.message || '');
-      if (err?.status === 409 || msg.toLowerCase().includes('already has an appointment')) {
+      if (isConflict || msg.toLowerCase().includes('already has an appointment')) {
         setRescheduleError(
           msg || 'Schedule conflict: you already have an appointment at this date and time.'
         );
@@ -262,8 +267,23 @@ export default function AppointmentDetailPage({ params }: PageProps) {
       (Array.isArray(patient.medicalConditions) ? patient.medicalConditions.filter(Boolean).join(', ') : '') ||
       'Physiotherapy Session'
   );
-  const isClinic = String(appointment.visitType || '').toLowerCase() === 'clinic';
-  const serviceType = isClinic ? 'Clinic Visit' : 'Home Doorstep Visit';
+  const modeStr = String(
+    appointment.consultationType ||
+      appointment.mode ||
+      appointment.visitType ||
+      appointment.appointmentType ||
+      ''
+  ).toLowerCase();
+  const isTelehealth =
+    appointment.isTelehealth === true ||
+    modeStr.includes('tele') ||
+    modeStr.includes('video');
+  const isClinic = !isTelehealth && String(appointment.visitType || '').toLowerCase() === 'clinic';
+  const serviceType = isTelehealth
+    ? 'Tele-Rehab Session'
+    : isClinic
+      ? 'Clinic Visit'
+      : 'Home Doorstep Visit';
 
   const rawDate = appointment.appointmentDate || appointment.scheduledAt || appointment.scheduledDate;
   const parsedDate = parseAppointmentDate(rawDate);
@@ -276,7 +296,7 @@ export default function AppointmentDetailPage({ params }: PageProps) {
   const addressStr = formatAddress(patient.address, String(appointment.location || 'Address not specified'));
   const sessionNum = Number(appointment.sessionIndex || appointment.sessionNumber || 0) || 0;
   const totalSessions = Number(appointment.totalSessions || 0) || 0;
-  const fee = Number(appointment.fee ?? appointment.amount ?? appointment.therapistSessionAmount ?? appointment.perSessionPrice ?? 0) || 0;
+  const fee = Number(appointment.sessionAmount ?? appointment.fee ?? appointment.amount ?? appointment.therapistSessionAmount ?? appointment.perSessionPrice ?? 0) || 0;
   const status = String(appointment.appointmentStatus || appointment.status || 'scheduled')
     .trim()
     .toLowerCase()
@@ -363,17 +383,7 @@ export default function AppointmentDetailPage({ params }: PageProps) {
 
           {/* Action CTAs */}
           <div className="flex flex-col sm:flex-row lg:flex-col gap-2.5 shrink-0">
-            {!isClinic ? (
-              <Button
-                asChild
-                className="h-11 px-5 rounded-2xl bg-primary hover:bg-primary/90 text-white font-bold text-xs shadow-md shadow-primary/20"
-              >
-                <Link href={`/app/visits?apt=${encodeURIComponent(appointmentId)}`}>
-                  <Play className="w-4 h-4 mr-2" />
-                  <span>Launch Home Visit Flow</span>
-                </Link>
-              </Button>
-            ) : (
+            {isTelehealth ? (
               <Button
                 asChild
                 className="h-11 px-5 rounded-2xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs shadow-md shadow-teal-600/20"
@@ -381,6 +391,16 @@ export default function AppointmentDetailPage({ params }: PageProps) {
                 <Link href={`/app/telehealth?appointmentId=${encodeURIComponent(appointmentId)}`}>
                   <Video className="w-4 h-4 mr-2" />
                   <span>Start Tele-Rehab Session</span>
+                </Link>
+              </Button>
+            ) : (
+              <Button
+                asChild
+                className="h-11 px-5 rounded-2xl bg-primary hover:bg-primary/90 text-white font-bold text-xs shadow-md shadow-primary/20"
+              >
+                <Link href={`/app/visits?apt=${encodeURIComponent(appointmentId)}`}>
+                  <Play className="w-4 h-4 mr-2" />
+                  <span>{isClinic ? 'Launch Clinic Visit Flow' : 'Launch Home Visit Flow'}</span>
                 </Link>
               </Button>
             )}

@@ -71,6 +71,73 @@ function getStageIndex(stage: VisitStage): number {
   }
 }
 
+function formatAddress(raw: unknown): string {
+  if (!raw) return '';
+  if (typeof raw === 'string') return raw.trim();
+  if (typeof raw === 'object') {
+    const addr = raw as Record<string, unknown>;
+    const parts = [
+      addr.street,
+      addr.addressLine2,
+      addr.line1,
+      addr.area,
+      addr.landMark ?? addr.landmark,
+      addr.city,
+      addr.state,
+      addr.pinCode ?? addr.zipCode,
+    ]
+      .map((p) => (p !== null && p !== undefined ? String(p).trim() : ''))
+      .filter(Boolean);
+    return parts.join(', ');
+  }
+  return '';
+}
+
+function resolveAppointmentAddress(apt: any): string {
+  return (
+    formatAddress(apt?.address) ||
+    formatAddress(apt?.patientDetails?.address) ||
+    formatAddress(apt?.patient?.address) ||
+    formatAddress(apt?.location) ||
+    'Address not on file'
+  );
+}
+
+function resolveSessionFee(apt: any): number {
+  const candidates = [
+    apt?.sessionAmount,
+    apt?.perSessionPrice,
+    apt?.therapistSessionAmount,
+    apt?.fee,
+    apt?.amount,
+  ];
+  for (const candidate of candidates) {
+    if (candidate === null || candidate === undefined || candidate === '') continue;
+    const parsed =
+      typeof candidate === 'number'
+        ? candidate
+        : Number(String(candidate).replace(/[^0-9.-]/g, ''));
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return 0;
+}
+
+function normalizeAppointmentStatus(apt: any): string {
+  const status = String(apt?.appointmentStatus || apt?.status || apt?.visitStatus || '').trim();
+  return status.toLowerCase().replace(/[\s-]+/g, '_');
+}
+
+function isAppointmentCompleted(apt: any): boolean {
+  if (apt?.isCompleted) return true;
+  const key = normalizeAppointmentStatus(apt);
+  return key === 'completed' || key === 'finalized' || key === 'closed';
+}
+
+function isAppointmentInSession(apt: any): boolean {
+  const key = normalizeAppointmentStatus(apt);
+  return key === 'inprogress' || key === 'in_progress' || key === 'in_session';
+}
+
 function VisitsWorkspace() {
   const { user } = useProviderAuth();
   const { toast } = useToast();
@@ -186,10 +253,11 @@ function VisitsWorkspace() {
       clinicalDiagnosis: apt.condition || apt.packageName || '',
     }));
 
-    const st = String(apt.status || apt.visitStatus || '');
-    if (st === 'In_Progress' || st === 'IN_SESSION') setVisitStage('IN_SESSION');
-    else if (st === 'ARRIVED') setVisitStage('OTP_CHECKIN');
-    else if (st === 'TRAVEL_STARTED') setVisitStage('ARRIVED');
+    const statusKey = normalizeAppointmentStatus(apt);
+    if (isAppointmentCompleted(apt)) setVisitStage('COMPLETED');
+    else if (isAppointmentInSession(apt)) setVisitStage('IN_SESSION');
+    else if (statusKey === 'arrived') setVisitStage('OTP_CHECKIN');
+    else if (statusKey === 'travel_started') setVisitStage('ARRIVED');
     else setVisitStage('SCHEDULED');
   }, []);
 
@@ -228,7 +296,7 @@ function VisitsWorkspace() {
 
   const handleStartTravel = async () => {
     if (!activeApt) return;
-    const feeOnRecord = Number(activeApt.perSessionPrice ?? activeApt.amount ?? 0) || 0;
+    const feeOnRecord = resolveSessionFee(activeApt);
     if (feeOnRecord <= 0) {
       const msg =
         'This appointment has no session fee on record. Ask operations to set the price before finalizing.';
@@ -358,7 +426,7 @@ function VisitsWorkspace() {
 
   // Filter appointment roster
   const filteredAppointments = appointments.filter((apt) => {
-    const isDone = apt.status === 'Completed' || apt.status === 'Finalized' || apt.isCompleted;
+    const isDone = isAppointmentCompleted(apt);
     if (activeTab === 'upcoming') return !isDone;
     if (activeTab === 'completed') return isDone;
     return true;
@@ -369,7 +437,7 @@ function VisitsWorkspace() {
   const activeStageIndex = getStageIndex(visitStage);
   const activePhone =
     activeApt?.patientPhone || activeApt?.patient?.phone || activeApt?.patient?.mobileNo || '';
-  const activeBaseFee = Number(activeApt?.perSessionPrice ?? activeApt?.amount ?? 0) || 0;
+  const activeBaseFee = resolveSessionFee(activeApt);
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
@@ -469,12 +537,7 @@ function VisitsWorkspace() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
               <div className="flex items-center gap-2 text-muted-foreground p-3 rounded-2xl bg-muted/30 min-w-0">
                 <MapPin className="w-4 h-4 text-primary shrink-0" />
-                <span className="truncate">
-                  {activeApt.address ||
-                    activeApt.patientDetails?.address ||
-                    activeApt.patient?.address ||
-                    'Address not on file'}
-                </span>
+                <span className="truncate">{resolveAppointmentAddress(activeApt)}</span>
               </div>
               <div className="flex items-center gap-2 text-muted-foreground p-3 rounded-2xl bg-muted/30">
                 <Clock className="w-4 h-4 text-primary shrink-0" />
@@ -942,13 +1005,7 @@ function VisitsWorkspace() {
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              Upcoming Schedule (
-              {
-                appointments.filter(
-                  (a) => !a.isCompleted && a.status !== 'Completed' && a.status !== 'Finalized'
-                ).length
-              }
-              )
+              Upcoming Schedule ({appointments.filter((a) => !isAppointmentCompleted(a)).length})
             </button>
             <button
               type="button"
@@ -959,13 +1016,7 @@ function VisitsWorkspace() {
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              Completed History (
-              {
-                appointments.filter(
-                  (a) => a.isCompleted || a.status === 'Completed' || a.status === 'Finalized'
-                ).length
-              }
-              )
+              Completed History ({appointments.filter((a) => isAppointmentCompleted(a)).length})
             </button>
           </div>
 
@@ -989,14 +1040,16 @@ function VisitsWorkspace() {
                   apt.patientName || apt.patient?.name || apt.patientDetails?.name || 'Patient';
                 const time =
                   apt.scheduledTime || apt.appointmentTime || apt.timeSlot || 'Scheduled Slot';
-                const address =
-                  apt.address ||
-                  apt.patientDetails?.address ||
-                  apt.patient?.address ||
-                  'Address not on file';
+                const address = resolveAppointmentAddress(apt);
                 const condition = apt.condition || apt.packageName || 'Physiotherapy Session';
                 const sessNum = apt.sessionNumber || apt.sessionsDone || 1;
                 const isFirst = sessNum === 1 || !apt.sessionsDone;
+                const sessionFee = resolveSessionFee(apt);
+                const cardCompleted = isAppointmentCompleted(apt);
+                const cardInSession = isAppointmentInSession(apt);
+                const canonicalStatus = String(
+                  apt?.appointmentStatus || apt?.status || apt?.visitStatus || ''
+                ).trim();
 
                 return (
                   <div
@@ -1010,6 +1063,19 @@ function VisitsWorkspace() {
                             <span className="text-[10px] font-outfit font-extrabold uppercase px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
                               Session #{sessNum} ({isFirst ? 'First Visit' : 'Regular Visit'})
                             </span>
+                            {canonicalStatus && (
+                              <span
+                                className={`text-[10px] font-outfit font-extrabold uppercase px-2 py-0.5 rounded-full border ${
+                                  cardCompleted
+                                    ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20'
+                                    : cardInSession
+                                      ? 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30'
+                                      : 'bg-muted/60 text-muted-foreground border-border/60'
+                                }`}
+                              >
+                                {cardCompleted ? 'Completed' : cardInSession ? 'In Session' : canonicalStatus.replace(/_/g, ' ')}
+                              </span>
+                            )}
                             <span className="text-[10px] font-mono text-muted-foreground font-bold">
                               {apt.scheduledDate || apt.appointmentDate || 'Scheduled'}
                             </span>
@@ -1021,7 +1087,7 @@ function VisitsWorkspace() {
 
                         <div className="text-right shrink-0">
                           <span className="font-mono font-black text-sm text-foreground">
-                            ₹{(Number(apt.perSessionPrice ?? apt.amount ?? 0) || 0).toLocaleString('en-IN')}
+                            ₹{sessionFee.toLocaleString('en-IN')}
                           </span>
                         </div>
                       </div>
@@ -1049,7 +1115,13 @@ function VisitsWorkspace() {
                         className="w-full h-10 rounded-2xl bg-primary hover:bg-primary/95 text-white font-outfit font-extrabold text-xs shadow-md shadow-primary/20 flex items-center justify-center gap-2"
                       >
                         <Navigation className="w-3.5 h-3.5" />
-                        <span>Start Visit & Clinical Assessment →</span>
+                        <span>
+                          {cardCompleted
+                            ? 'View Completed Visit →'
+                            : cardInSession
+                              ? 'Resume Clinical Session →'
+                              : 'Start Visit & Clinical Assessment →'}
+                        </span>
                       </Button>
                     </div>
                   </div>

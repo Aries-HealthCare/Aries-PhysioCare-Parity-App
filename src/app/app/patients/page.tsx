@@ -692,7 +692,7 @@ function PatientsPageContent() {
                     {selectedPatient.appointments.map((apt: any, idx: number) => {
                       const aptId = String(apt._id || apt.id || `apt-${idx}`);
                       const statusMeta = getAppointmentStatusMeta(apt);
-                      const fee = Number(apt.fee ?? apt.amount ?? apt.therapistSessionAmount ?? apt.perSessionPrice ?? 0) || 0;
+                      const fee = Number(apt.sessionAmount ?? apt.fee ?? apt.amount ?? apt.therapistSessionAmount ?? apt.perSessionPrice ?? 0) || 0;
                       const sessionNo = Number(apt.sessionIndex || apt.sessionNumber || 0) || 0;
                       const dateStr = formatShortDate(
                         apt.appointmentDate || apt.scheduledAt || apt.scheduledDate || apt.createdAt

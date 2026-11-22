@@ -2622,7 +2622,10 @@ class ProviderApiService {
   }
 
   public async sendChatMessage(chatId: string, text: string): Promise<any> {
-    const res = await apiPost(`/api/v1/chats/${chatId}/messages`, { text });
+    const res = await apiPost(`/api/v1/chats/${chatId}/messages`, {
+      content: text,
+      type: 'text',
+    });
     return unwrap(res);
   }
 

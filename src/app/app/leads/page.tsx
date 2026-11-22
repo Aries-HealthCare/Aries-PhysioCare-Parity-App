@@ -25,6 +25,55 @@ import { Button } from '@/components/ui/button';
 
 const PASS_REASONS = ['Busy', 'Not Interested', 'Location Too Far', 'Price Issue', 'Other'];
 
+function formatLeadAddress(raw: unknown): string {
+  if (!raw) return '';
+  if (typeof raw === 'string') return raw.trim();
+  if (typeof raw === 'object') {
+    const a = raw as Record<string, unknown>;
+    const parts = [
+      a.street,
+      a.addressLine2,
+      a.line1,
+      a.area,
+      a.landMark ?? a.landmark,
+      a.city,
+      a.state,
+      a.pinCode ?? a.zipCode,
+    ]
+      .map((p) => (p !== null && p !== undefined ? String(p).trim() : ''))
+      .filter(Boolean);
+    return parts.join(', ');
+  }
+  return '';
+}
+
+function resolveLeadPatient(lead: any) {
+  const rawPatient = lead?.broadcast?.patient ?? lead?.patient ?? lead?.patientDetails;
+  const patientObj = rawPatient && typeof rawPatient === 'object' ? rawPatient : null;
+  const patientId =
+    patientObj?._id ||
+    patientObj?.id ||
+    (typeof lead?.broadcast?.patient === 'string' ? lead.broadcast.patient : undefined) ||
+    (typeof lead?.patient === 'string' ? lead.patient : undefined) ||
+    lead?.patientId ||
+    undefined;
+  const patientName =
+    `${patientObj?.firstName || ''} ${patientObj?.lastName || ''}`.trim() ||
+    patientObj?.fullName ||
+    patientObj?.name ||
+    lead?.patientName ||
+    'Patient';
+  const phone = String(patientObj?.phone || patientObj?.mobileNo || lead?.phone || '').trim();
+  const address =
+    formatLeadAddress(lead?.address) ||
+    formatLeadAddress(patientObj?.address) ||
+    formatLeadAddress(lead?.broadcast?.address) ||
+    '';
+  const age = lead?.patientAge ?? lead?.age ?? patientObj?.age;
+  const gender = lead?.patientGender ?? lead?.gender ?? patientObj?.gender;
+  return { patientObj, patientId, patientName, phone, address, age, gender };
+}
+
 function getExpiryText(lead: any): string {
   const createdAt = lead.createdAt ? new Date(lead.createdAt) : null;
   const expiresIn = lead.expiresIn?.toString() || '72 hours';
@@ -132,9 +181,11 @@ export default function ProviderLeadsPage() {
 
   const handleReview = async (lead: any) => {
     const id = lead._id || lead.id;
+    const { patientId } = resolveLeadPatient(lead);
+    const targetId = String(patientId || id);
     setFeedback({ type: 'info', text: 'Sending review invitation via WhatsApp...' });
     try {
-      const res = await providerApi.requestPatientReview(id);
+      const res = await providerApi.requestPatientReview(targetId);
       if (res.success) {
         showFeedback(
           'success',
@@ -244,12 +295,11 @@ export default function ProviderLeadsPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {newLeads.map((lead: any) => {
-              const patientName = lead.patientName || lead.patient?.name || lead.patient?.fullName || 'Patient';
-              const age = lead.patientAge || lead.age || lead.patient?.age;
-              const gender = lead.patientGender || lead.gender || lead.patient?.gender;
+              const { patientObj, patientName, age, gender } = resolveLeadPatient(lead);
               const condition = lead.condition || '—';
               const pkg = lead.packageType || lead.packageName || '—';
-              const locality = lead.locality || lead.location || lead.city || '—';
+              const locality =
+                formatLeadAddress(lead.locality || lead.location || lead.city || patientObj?.address) || '—';
               const distance = lead.distanceKm;
               const payout = lead.payoutAmount || lead.sessionFee;
               const urgency = lead.urgency;
@@ -333,17 +383,16 @@ export default function ProviderLeadsPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {acquiredLeads.map((lead: any) => {
-              const patientName = lead.patientName || lead.patient?.name || lead.patient?.fullName || 'Patient';
-              const age = lead.patientAge || lead.age || lead.patient?.age;
-              const gender = lead.patientGender || lead.gender || lead.patient?.gender;
+              const { patientId, patientName, phone, address, age, gender } = resolveLeadPatient(lead);
               const condition = lead.condition || lead.diagnosis || '—';
               const pkg = lead.packageType || lead.packageName || '—';
-              const phone = lead.phone || lead.patient?.phone || lead.patient?.mobileNo || '';
               const completed = lead.completedSessions || 0;
               const total = lead.totalSessions || lead.sessionsCount || 0;
               const progress = total > 0 ? completed / total : 0;
               const id = lead._id || lead.id;
-              const patientId = lead.patient?._id || lead.patient?.id || lead.patientId || id;
+              const emrHref = patientId
+                ? `/app/patients/${encodeURIComponent(String(patientId))}`
+                : `/app/patients?search=${encodeURIComponent(patientName)}`;
               return (
                 <div key={id} className="bg-card border border-border/80 rounded-3xl p-5 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between">
                   <div>
@@ -379,10 +428,10 @@ export default function ProviderLeadsPage() {
                           </div>
                         </div>
                       )}
-                      {lead.address && (
+                      {address && (
                         <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
                           <MapPin className="w-3.5 h-3.5 shrink-0 text-primary mt-0.5" />
-                          <span className="line-clamp-1">{lead.address}</span>
+                          <span className="line-clamp-1">{address}</span>
                         </div>
                       )}
                     </div>
@@ -391,7 +440,7 @@ export default function ProviderLeadsPage() {
                   {/* Action buttons — View EMR, Call, WhatsApp Review, Schedule */}
                   <div className="grid grid-cols-2 gap-2">
                     <Link
-                      href={`/app/patients/${encodeURIComponent(String(patientId))}`}
+                      href={emrHref}
                       prefetch={false}
                       className="col-span-1"
                     >

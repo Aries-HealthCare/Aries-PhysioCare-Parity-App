@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { useProviderAuth } from '@/services/provider-auth-context';
 import { providerApi } from '@/services/provider-api';
+import { ApiError } from '@/services/api-transport';
 import { useRealtimeEvent } from '@/services/provider-realtime';
 
 const TIME_SLOTS = [
@@ -241,7 +242,7 @@ export default function ProviderAppointmentsPage() {
               status,
               sessionNumber: Number(item.sessionIndex || item.sessionNumber || 0) || 0,
               totalSessions: Number(item.totalSessions || 0) || 0,
-              fee: Number(item.fee ?? item.amount ?? item.therapistSessionAmount ?? item.perSessionPrice ?? 0) || 0,
+              fee: Number(item.sessionAmount ?? item.fee ?? item.amount ?? item.therapistSessionAmount ?? item.perSessionPrice ?? 0) || 0,
               sortTimestamp: parsedDate ? parsedDate.getTime() : 0,
             };
           });
@@ -322,9 +323,12 @@ export default function ProviderAppointmentsPage() {
       setReschedulingApt(null);
       await loadAppointments(true);
     } catch (err: any) {
-      const status = err?.status;
+      const isConflict =
+        err instanceof ApiError
+          ? err.statusCode === 409
+          : err?.statusCode === 409 || err?.status === 409;
       const msg = String(err?.message || '');
-      if (status === 409 || msg.toLowerCase().includes('already has an appointment')) {
+      if (isConflict || msg.toLowerCase().includes('already has an appointment')) {
         setRescheduleError(
           msg || 'Schedule conflict: you already have another appointment booked at this date and time. Please choose a different slot.'
         );

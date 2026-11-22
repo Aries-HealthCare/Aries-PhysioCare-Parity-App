@@ -725,7 +725,7 @@ export default function PatientDetailPage({ params }: PageProps) {
                   const timeLabel = String(apt.appointmentTime || apt.timeSlot || '').trim();
                   const sessionNo = Number(apt.sessionIndex || apt.sessionNumber || 0) || 0;
                   const fee =
-                    Number(apt.fee ?? apt.amount ?? apt.therapistSessionAmount ?? apt.perSessionPrice ?? 0) || 0;
+                    Number(apt.sessionAmount ?? apt.fee ?? apt.amount ?? apt.therapistSessionAmount ?? apt.perSessionPrice ?? 0) || 0;
 
                   return (
                     <Link

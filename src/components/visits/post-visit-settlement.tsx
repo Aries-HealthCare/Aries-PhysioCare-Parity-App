@@ -52,6 +52,7 @@ interface NormalizedPackage {
   id: string;
   name: string;
   price: number;
+  originalPrice: number | null;
   sessions: number;
   durationLabel: string;
   perSessionEstimate: number | null;
@@ -80,8 +81,18 @@ function normalizePackage(raw: any): NormalizedPackage | null {
   if (!raw || typeof raw !== 'object') return null;
   const id = String(raw._id || raw.id || '').trim();
   const name = String(raw.name || raw.title || raw.packageName || '').trim();
-  const price = Number(raw.price ?? raw.totalPrice ?? raw.packagePrice ?? raw.amount ?? 0);
+  const discounted = Number(raw.discountedPrice ?? 0);
+  const listPrice = Number(raw.price ?? raw.totalPrice ?? raw.packagePrice ?? raw.amount ?? 0);
+  const price =
+    Number.isFinite(discounted) && discounted > 0
+      ? discounted
+      : Number.isFinite(listPrice)
+        ? listPrice
+        : 0;
   if (!id || !name || !Number.isFinite(price) || price <= 0) return null;
+
+  const originalPrice =
+    Number.isFinite(listPrice) && listPrice > price ? listPrice : null;
 
   const rawSessions = Number(
     raw.sessions ?? raw.totalSessions ?? raw.sessionCount ?? raw.numberOfSessions ?? 0
@@ -114,6 +125,7 @@ function normalizePackage(raw: any): NormalizedPackage | null {
     id,
     name,
     price,
+    originalPrice,
     sessions,
     durationLabel,
     perSessionEstimate,
@@ -826,9 +838,16 @@ export function PostVisitSettlement({
                       </p>
                     </div>
                     <div className="pt-2 border-t border-border/60 flex items-baseline justify-between gap-2">
-                      <span className="font-mono font-black text-base text-primary">
-                        ₹{pkg.price.toLocaleString('en-IN')}
-                      </span>
+                      <div className="flex items-baseline gap-1.5 flex-wrap">
+                        <span className="font-mono font-black text-base text-primary">
+                          ₹{pkg.price.toLocaleString('en-IN')}
+                        </span>
+                        {pkg.originalPrice !== null && (
+                          <span className="font-mono text-[11px] text-muted-foreground line-through">
+                            ₹{pkg.originalPrice.toLocaleString('en-IN')}
+                          </span>
+                        )}
+                      </div>
                       {pkg.perSessionEstimate !== null && (
                         <span className="text-[10px] font-mono text-muted-foreground">
                           ~₹{pkg.perSessionEstimate}/visit
