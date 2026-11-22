@@ -88,6 +88,19 @@ export interface VisitTrendResult {
   filteredAppointments: any[];
 }
 
+function buildValidatedLocalDate(year: number, month: number, day: number): Date | null {
+  const d = new Date(year, month - 1, day);
+  if (
+    Number.isNaN(d.getTime()) ||
+    d.getFullYear() !== year ||
+    d.getMonth() !== month - 1 ||
+    d.getDate() !== day
+  ) {
+    return null;
+  }
+  return d;
+}
+
 function parseAppointmentDate(apt: any): Date | null {
   const raw = apt?.appointmentDate ?? apt?.date ?? apt?.scheduledDate ?? apt?.createdAt;
   if (!raw) return null;
@@ -96,22 +109,20 @@ function parseAppointmentDate(apt: any): Date | null {
   const str = String(raw).trim();
   if (!str) return null;
 
-  // YYYY-MM-DD (treat as local date to avoid UTC midnight day-shift)
+  // YYYY-MM-DD (treat as local date to avoid UTC midnight day-shift and reject rollover)
   const isoDateOnly = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (isoDateOnly) {
-    const d = new Date(
+    return buildValidatedLocalDate(
       Number(isoDateOnly[1]),
-      Number(isoDateOnly[2]) - 1,
+      Number(isoDateOnly[2]),
       Number(isoDateOnly[3])
     );
-    return Number.isNaN(d.getTime()) ? null : d;
   }
 
-  // DD/MM/YYYY
+  // DD/MM/YYYY (reject calendar rollover)
   const dmy = str.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
   if (dmy) {
-    const d = new Date(Number(dmy[3]), Number(dmy[2]) - 1, Number(dmy[1]));
-    return Number.isNaN(d.getTime()) ? null : d;
+    return buildValidatedLocalDate(Number(dmy[3]), Number(dmy[2]), Number(dmy[1]));
   }
 
   const parsed = new Date(str);
@@ -134,7 +145,7 @@ function parseAppointmentHour(apt: any, parsedDate: Date): number {
 }
 
 function isAppointmentCompleted(apt: any): boolean {
-  const status = String(apt?.status || '')
+  const status = String(apt?.appointmentStatus ?? apt?.status ?? '')
     .trim()
     .toLowerCase()
     .replace(/[\s-]+/g, '_');
@@ -295,7 +306,8 @@ export function aggregateMissedLeadReasons(rows: any[]): MissedLeadAnalytics {
     if (Number.isFinite(fee) && fee > 0) {
       potentialLoss += fee;
     }
-    const rawReason = l?.remark || l?.reason || l?.therapistResponse || 'No Response';
+    const rawReason =
+      l?.notIntrestedRemark || l?.remark || l?.reason || l?.therapistResponse || 'No Response';
     const reason = String(rawReason).trim() || 'No Response';
     counts.set(reason, (counts.get(reason) ?? 0) + 1);
   }
@@ -346,7 +358,13 @@ export function isDynamicQuestionVisible(
   question: { parentFieldId?: string; visibilityValue?: unknown },
   formData: Record<string, any>
 ): boolean {
-  if (!question?.parentFieldId) return true;
+  if (
+    !question?.parentFieldId ||
+    question.visibilityValue === undefined ||
+    question.visibilityValue === null
+  ) {
+    return true;
+  }
 
   const parentVal = formData?.[question.parentFieldId];
   if (parentVal === undefined || parentVal === null) return false;
@@ -390,6 +408,7 @@ export function haversineDistanceKm(
   const a =
     Math.sin(dLat / 2) ** 2 +
     Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const clampedA = Math.min(1, Math.max(0, a));
+  const c = 2 * Math.atan2(Math.sqrt(clampedA), Math.sqrt(1 - clampedA));
   return Math.round(R * c * 10) / 10;
 }

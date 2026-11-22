@@ -12,6 +12,25 @@ export function isAuthPath(pathname: string): boolean {
   return AUTH_PATHS.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
+export function resolveSafeNextPath(
+  next: string | null | undefined,
+  requestOrigin: string
+): string {
+  if (!next || typeof next !== 'string') return '/app';
+  if (!next.startsWith('/') || next.startsWith('//')) return '/app';
+  if (next.includes('\\') || /[\x00-\x1f\x7f]/.test(next)) return '/app';
+
+  try {
+    const base = new URL(requestOrigin);
+    const target = new URL(next, base.origin);
+    if (target.origin !== base.origin) return '/app';
+    if (isAuthPath(target.pathname)) return '/app';
+    return `${target.pathname}${target.search}${target.hash}`;
+  } catch {
+    return '/app';
+  }
+}
+
 export async function persistBrowserSession(token: string | null): Promise<void> {
   if (typeof window === 'undefined') return;
   try {

@@ -105,20 +105,38 @@ export function ProviderRealtimeProvider({ children }: { children: React.ReactNo
     []
   );
 
+  const joinChat = useCallback((roomId: string) => providerSocket.joinChat(roomId), []);
+  const leaveChat = useCallback((roomId: string) => providerSocket.leaveChat(roomId), []);
+  const sendChatMessage = useCallback(
+    (roomId: string, content: string) => providerSocket.sendChatMessage(roomId, content),
+    []
+  );
+  const joinSosSession = useCallback((sosId: string) => providerSocket.joinSosSession(sosId), []);
+  const leaveSosSession = useCallback(() => providerSocket.leaveSosSession(), []);
+
   const value = useMemo<RealtimeContextValue>(
     () => ({
       connected,
       revision,
       lastEvent,
       subscribe,
-      joinChat: (roomId: string) => providerSocket.joinChat(roomId),
-      leaveChat: (roomId: string) => providerSocket.leaveChat(roomId),
-      sendChatMessage: (roomId: string, content: string) =>
-        providerSocket.sendChatMessage(roomId, content),
-      joinSosSession: (sosId: string) => providerSocket.joinSosSession(sosId),
-      leaveSosSession: () => providerSocket.leaveSosSession(),
+      joinChat,
+      leaveChat,
+      sendChatMessage,
+      joinSosSession,
+      leaveSosSession,
     }),
-    [connected, revision, lastEvent, subscribe]
+    [
+      connected,
+      revision,
+      lastEvent,
+      subscribe,
+      joinChat,
+      leaveChat,
+      sendChatMessage,
+      joinSosSession,
+      leaveSosSession,
+    ]
   );
 
   return <RealtimeContext.Provider value={value}>{children}</RealtimeContext.Provider>;

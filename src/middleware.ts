@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { SESSION_COOKIE, isAuthPath, isProtectedPath } from '@/lib/expert-session';
+import {
+  SESSION_COOKIE,
+  isAuthPath,
+  isProtectedPath,
+  resolveSafeNextPath,
+} from '@/lib/expert-session';
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -13,8 +18,10 @@ export function middleware(request: NextRequest) {
   }
 
   if (isAuthPath(pathname) && hasSession && !request.nextUrl.searchParams.get('force')) {
-    const next = request.nextUrl.searchParams.get('next');
-    const destination = next && next.startsWith('/') && !next.startsWith('//') ? next : '/app';
+    const destination = resolveSafeNextPath(
+      request.nextUrl.searchParams.get('next'),
+      request.nextUrl.origin
+    );
     return NextResponse.redirect(new URL(destination, request.url));
   }
 

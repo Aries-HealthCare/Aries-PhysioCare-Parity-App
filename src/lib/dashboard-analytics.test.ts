@@ -95,27 +95,54 @@ test('aggregateVisitTrends produces today, week (Mon-Sun), and month (W1-W5) ser
   assert.equal(monthRes.series[2].total, 1); // Nov 16 -> W3 (15-21)
   assert.equal(monthRes.series[3].total, 3); // Nov 22 -> W4 (22-28)
   assert.equal(monthRes.series[4].total, 1); // Nov 29 -> W5 (29-31)
+
+  // Canonical appointmentStatus takes precedence over status and invalid rolled-over dates are ignored
+  const canonicalRes = aggregateVisitTrends(
+    [
+      { _id: 'c1', appointmentDate: '2026-11-22', appointmentTime: '09:00 AM', appointmentStatus: 'Completed' },
+      { _id: 'c2', appointmentDate: '2026-02-31', appointmentTime: '09:00 AM', appointmentStatus: 'Completed' },
+      { _id: 'c3', appointmentDate: '31/02/2026', appointmentTime: '09:00 AM', appointmentStatus: 'Completed' },
+    ],
+    'today',
+    now
+  );
+  assert.equal(canonicalRes.summary.total, 1);
+  assert.equal(canonicalRes.summary.completed, 1);
+  assert.equal(canonicalRes.summary.completionRate, 100);
+
+  // Rolled-over Feb 31 must never appear in March
+  const marchNow = new Date(2026, 2, 3, 10, 0, 0);
+  const marchRes = aggregateVisitTrends(
+    [
+      { _id: 'bad1', appointmentDate: '2026-02-31', appointmentStatus: 'Completed' },
+      { _id: 'bad2', appointmentDate: '31/02/2026', appointmentStatus: 'Completed' },
+    ],
+    'month',
+    marchNow
+  );
+  assert.equal(marchRes.summary.total, 0);
 });
 
 test('aggregateMissedLeadReasons partitions recovered vs missed, sums potentialLoss, and ranks reasons', () => {
   const rows = [
     { _id: '1', isRecover: true, broadcast: { estimatedFee: 1000 }, remark: 'Too far' },
-    { _id: '2', isRecover: false, broadcast: { estimatedFee: 800 }, remark: 'Too far' },
+    { _id: '2', isRecover: false, broadcast: { estimatedFee: 800 }, notIntrestedRemark: 'Out of zone', remark: 'Fallback remark' },
     { _id: '3', broadcast: { sessionFee: 900 }, reason: 'Too far' },
     { _id: '4', estimatedFee: 700, therapistResponse: 'Not Available' },
     { _id: '5', broadcast: { estimatedFee: 600 } }, // defaults to 'No Response'
+    { _id: '6', broadcast: { estimatedFee: 500 }, notIntrestedRemark: 'Out of zone' },
   ];
 
   const stats = aggregateMissedLeadReasons(rows);
   assert.equal(stats.recovered.length, 1);
-  assert.equal(stats.missed.length, 4);
-  assert.equal(stats.totalMissed, 4);
-  assert.equal(stats.recoverableCount, 4);
-  assert.equal(stats.potentialLoss, 3000);
-  assert.equal(stats.recoveryRate, 20);
-  assert.equal(stats.reasons[0].reason, 'Too far');
+  assert.equal(stats.missed.length, 5);
+  assert.equal(stats.totalMissed, 5);
+  assert.equal(stats.recoverableCount, 5);
+  assert.equal(stats.potentialLoss, 3500);
+  assert.equal(stats.recoveryRate, 17);
+  assert.equal(stats.reasons[0].reason, 'Out of zone');
   assert.equal(stats.reasons[0].count, 2);
-  assert.equal(stats.reasons[0].pct, 50);
+  assert.equal(stats.reasons[0].pct, 40);
   assert.ok(stats.reasons.every((r) => typeof r.color === 'string' && r.color.length > 0));
 
   const empty = aggregateMissedLeadReasons([]);
@@ -126,8 +153,10 @@ test('aggregateMissedLeadReasons partitions recovered vs missed, sums potentialL
 });
 
 test('isDynamicQuestionVisible evaluates scalar, boolean, multipleChoice array, and array visibilityValue', () => {
-  // Always visible when no parentFieldId
+  // Always visible when no parentFieldId or nullish visibilityValue
   assert.equal(isDynamicQuestionVisible({}, {}), true);
+  assert.equal(isDynamicQuestionVisible({ parentFieldId: 'q1', visibilityValue: undefined }, {}), true);
+  assert.equal(isDynamicQuestionVisible({ parentFieldId: 'q1', visibilityValue: null }, {}), true);
 
   // Scalar string match
   assert.equal(
@@ -218,4 +247,8 @@ test('haversineDistanceKm calculates accurate distances in km', () => {
   // New Delhi to Mumbai ~ 1148 km
   const delToBom = haversineDistanceKm(28.6139, 77.209, 19.076, 72.8777);
   assert.ok(delToBom >= 1135 && delToBom <= 1160, `Expected ~1148 km, got ${delToBom}`);
+
+  // Antipodal coordinates stay finite (~20015.1 km) without NaN from floating-point overshoot
+  const antipodal = haversineDistanceKm(0, 0, 0, 180);
+  assert.ok(Number.isFinite(antipodal) && antipodal > 20000 && antipodal < 20030, `Got ${antipodal}`);
 });
