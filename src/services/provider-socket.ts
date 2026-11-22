@@ -32,6 +32,7 @@ export type ProviderSocketEvent =
   | 'new_flash_alert'
   | 'peer_sos_alert'
   | 'sos_backup_dispatch'
+  | 'sos_status_change'
   | 'therapist_wallet_update'
   | 'new_message'
   | 'connection_state';
@@ -53,7 +54,9 @@ const ROOT_EVENTS: ProviderSocketEvent[] = [
 class ProviderSocketService {
   private socket: Socket | null = null;
   private chatSocket: Socket | null = null;
+  private sosSocket: Socket | null = null;
   private activeChatRoomId: string | null = null;
+  private activeSosId: string | null = null;
   private therapistId: string | null = null;
   private listeners = new Map<ProviderSocketEvent, Set<Listener>>();
 
@@ -173,6 +176,56 @@ class ProviderSocketService {
     return true;
   }
 
+  /** Lazy `/sos` namespace connection for active emergency status updates (`PIN_READY`, `RESOLVED`). */
+  joinSosSession(sosId: string) {
+    if (typeof window === 'undefined' || !sosId) return;
+    this.activeSosId = sosId;
+
+    if (this.sosSocket?.connected) {
+      this.sosSocket.emit('join_sos_session', { sosId });
+      return;
+    }
+
+    if (!this.sosSocket) {
+      const token = readToken();
+      const origin = getSocketOrigin();
+
+      this.sosSocket = io(`${origin}/sos`, {
+        path: '/socket.io',
+        transports: ['websocket', 'polling'],
+        auth: token ? { token } : undefined,
+        extraHeaders: token ? { Authorization: `Bearer ${token}` } : undefined,
+        reconnection: true,
+        reconnectionAttempts: Infinity,
+        reconnectionDelay: 5000,
+        reconnectionDelayMax: 15000,
+        timeout: 20000,
+      });
+
+      this.sosSocket.on('connect', () => {
+        this.emitLocal('connection_state', { connected: true, scope: 'sos' });
+        if (this.activeSosId) {
+          this.sosSocket?.emit('join_sos_session', { sosId: this.activeSosId });
+        }
+      });
+
+      this.sosSocket.on('sos_status_change', (data: SocketPayload) => {
+        this.emitLocal('sos_status_change', data ?? {});
+      });
+
+      this.sosSocket.on('connect_error', (err: any) => {
+        console.warn('[ProviderSocket:/sos] connect_error:', err?.message || err);
+      });
+    }
+  }
+
+  leaveSosSession() {
+    this.activeSosId = null;
+    this.sosSocket?.removeAllListeners();
+    this.sosSocket?.disconnect();
+    this.sosSocket = null;
+  }
+
   on(event: ProviderSocketEvent, listener: Listener): () => void {
     if (!this.listeners.has(event)) this.listeners.set(event, new Set());
     this.listeners.get(event)!.add(listener);
@@ -203,6 +256,7 @@ class ProviderSocketService {
     this.chatSocket?.removeAllListeners();
     this.chatSocket?.disconnect();
     this.chatSocket = null;
+    this.leaveSosSession();
   }
 }
 

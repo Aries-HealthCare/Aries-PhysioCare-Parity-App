@@ -31,6 +31,8 @@ interface RealtimeContextValue {
   joinChat: (roomId: string) => void;
   leaveChat: (roomId: string) => void;
   sendChatMessage: (roomId: string, content: string) => boolean;
+  joinSosSession: (sosId: string) => void;
+  leaveSosSession: () => void;
 }
 
 const EMPTY_REVISION = {} as Record<ProviderSocketEvent, number>;
@@ -43,6 +45,8 @@ const RealtimeContext = createContext<RealtimeContextValue>({
   joinChat: () => {},
   leaveChat: () => {},
   sendChatMessage: () => false,
+  joinSosSession: () => {},
+  leaveSosSession: () => {},
 });
 
 const TRACKED_EVENTS: ProviderSocketEvent[] = [
@@ -53,6 +57,7 @@ const TRACKED_EVENTS: ProviderSocketEvent[] = [
   'new_flash_alert',
   'peer_sos_alert',
   'sos_backup_dispatch',
+  'sos_status_change',
   'therapist_wallet_update',
   'new_message',
 ];
@@ -110,6 +115,8 @@ export function ProviderRealtimeProvider({ children }: { children: React.ReactNo
       leaveChat: (roomId: string) => providerSocket.leaveChat(roomId),
       sendChatMessage: (roomId: string, content: string) =>
         providerSocket.sendChatMessage(roomId, content),
+      joinSosSession: (sosId: string) => providerSocket.joinSosSession(sosId),
+      leaveSosSession: () => providerSocket.leaveSosSession(),
     }),
     [connected, revision, lastEvent, subscribe]
   );

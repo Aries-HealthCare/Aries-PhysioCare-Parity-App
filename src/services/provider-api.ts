@@ -305,7 +305,8 @@ export interface DynamicQuestion {
     | 'boolean'
     | 'lineBreak'
     | 'header'
-    | 'dropdown';
+    | 'dropdown'
+    | 'auto';
   required?: boolean;
   order?: number;
   options?: string[];
@@ -314,6 +315,8 @@ export interface DynamicQuestion {
   group?: string;
   placeholder?: string;
   suffix?: string;
+  parentFieldId?: string;
+  visibilityValue?: string | boolean | string[];
 }
 
 export interface DynamicAssessmentForm {
@@ -382,6 +385,7 @@ export interface FinalizeVisitPayload {
   addOns?: string[];
   packageId?: string;
   packageName?: string;
+  otherAddOnAmount?: number;
 }
 
 class ProviderApiService {
@@ -995,13 +999,21 @@ class ProviderApiService {
    */
   public async finalizeVisit(
     payload: FinalizeVisitPayload
-  ): Promise<{ success: boolean; data?: any; message?: string }> {
+  ): Promise<{
+    success: boolean;
+    data?: { paymentLinkUrl?: string | null; paymentLinkOrderId?: string | null; [k: string]: any };
+    message?: string;
+  }> {
+    const addOns = payload.addOns ?? payload.selectedAddOns;
     const res = await apiPost(`/api/app/appointment/${payload.appointmentId}/finalize`, {
       paymentMethod: payload.paymentMethod,
       totalAmount: payload.totalAmount,
-      ...(payload.addOns ? { addOns: payload.addOns } : {}),
+      ...(addOns ? { addOns } : {}),
       ...(payload.packageId ? { packageId: payload.packageId } : {}),
       ...(payload.packageName ? { packageName: payload.packageName } : {}),
+      ...(payload.otherAddOnAmount !== undefined
+        ? { otherAddOnAmount: payload.otherAddOnAmount }
+        : {}),
     });
     return { success: res.success !== false, data: unwrap(res), message: res.message };
   }
@@ -1263,6 +1275,83 @@ class ProviderApiService {
       ...(reason ? { notIntrestedRemark: reason } : {}),
     });
     return { success: res.success !== false, message: res.message };
+  }
+
+  /** PUT /api/app/broadcastlisting/markAsInterestedOrNot — recover a missed lead. */
+  public async recoverMissedLead(
+    broadcastListingId: string
+  ): Promise<{ success: boolean; message?: string }> {
+    const res = await apiPut('/api/app/broadcastlisting/markAsInterestedOrNot', {
+      broadcastListingId,
+      therapistResponse: 'Interested',
+      recover: true,
+      isRecover: true,
+    });
+    return { success: res.success !== false, message: res.message };
+  }
+
+  // ==========================================
+  // DISPATCH CLAIM INVITES
+  // ==========================================
+
+  /** GET /api/v1/dispatch/invites/:token/preview */
+  public async previewDispatchInvite(token: string): Promise<{
+    success: boolean;
+    booking?: {
+      patientInitials?: string;
+      patientArea?: string;
+      scheduledDate?: string;
+      scheduledTime?: string;
+      condition?: string;
+      [k: string]: any;
+    };
+    message?: string;
+  }> {
+    const res = await apiGet(`/api/v1/dispatch/invites/${encodeURIComponent(token)}/preview`);
+    const payload = unwrap(res) || {};
+    return {
+      success: res.success !== false,
+      booking: (res as any).booking ?? payload.booking,
+      message: res.message,
+    };
+  }
+
+  /** POST /api/v1/dispatch/invites/:token/accept */
+  public async acceptDispatchInvite(token: string): Promise<{
+    success: boolean;
+    status?: string;
+    booking?: {
+      fullPatientName?: string;
+      fullAddress?: string;
+      [k: string]: any;
+    };
+    idempotent?: boolean;
+    message?: string;
+  }> {
+    const res = await apiPost(`/api/v1/dispatch/invites/${encodeURIComponent(token)}/accept`, {});
+    const payload = unwrap(res) || {};
+    return {
+      success: res.success !== false,
+      status: (res as any).status ?? payload.status,
+      booking: (res as any).booking ?? payload.booking,
+      idempotent: (res as any).idempotent ?? payload.idempotent,
+      message: res.message,
+    };
+  }
+
+  /** POST /api/v1/dispatch/invites/:token/decline */
+  public async declineDispatchInvite(token: string): Promise<{
+    success: boolean;
+    status?: string;
+    message?: string;
+  }> {
+    const res = await apiPost(`/api/v1/dispatch/invites/${encodeURIComponent(token)}/decline`, {});
+    const payload = unwrap(res) || {};
+    return {
+      success: res.success !== false,
+      status: (res as any).status ?? payload.status,
+      message: res.message,
+    };
   }
 
   /** POST /api/app/patient/requestReview — mirrors `ApiService.requestPatientReview`. */
@@ -1542,6 +1631,8 @@ class ProviderApiService {
             group: q.group || 'Clinical Examination',
             placeholder: q.placeholder,
             suffix: q.suffix,
+            parentFieldId: q.parentFieldId || q.parentField || undefined,
+            visibilityValue: q.visibilityValue,
           })),
         }));
       }
@@ -2297,9 +2388,16 @@ class ProviderApiService {
     appointmentId: string;
     appointmentDate: string;
     appointmentTime?: string;
+    remark?: string;
     reason?: string;
   }): Promise<{ success: boolean; result?: any; message?: string }> {
-    const res = await apiPost('/api/app/appointment/rescheduleAppointment', payload);
+    const remark = payload.remark ?? payload.reason;
+    const res = await apiPost('/api/app/appointment/rescheduleAppointment', {
+      appointmentId: payload.appointmentId,
+      appointmentDate: payload.appointmentDate,
+      ...(payload.appointmentTime ? { appointmentTime: payload.appointmentTime } : {}),
+      ...(remark ? { remark } : {}),
+    });
     return { success: res.success !== false, result: unwrap(res), message: res.message };
   }
 
@@ -2527,9 +2625,26 @@ class ProviderApiService {
     return unwrap(res);
   }
 
-  public async initializeSupportChat(): Promise<any> {
-    const res = await apiPost('/api/app/support-chat/initialize', {});
+  public async initializeSupportChat(department?: string): Promise<any> {
+    const res = await apiPost(
+      '/api/app/support-chat/initialize',
+      department ? { department } : {}
+    );
     return unwrap(res);
+  }
+
+  /** POST /api/app/support-chat/rooms/:roomId/end */
+  public async endSupportChat(
+    roomId: string
+  ): Promise<{ success: boolean; result?: any; message?: string }> {
+    const res = await apiPost(`/api/app/support-chat/rooms/${encodeURIComponent(roomId)}/end`, {});
+    return { success: res.success !== false, result: unwrap(res), message: res.message };
+  }
+
+  /** DELETE /api/app/support-chat/rooms/:roomId */
+  public async deleteSupportChat(roomId: string): Promise<{ success: boolean; message?: string }> {
+    const res = await apiDelete(`/api/app/support-chat/rooms/${encodeURIComponent(roomId)}`);
+    return { success: res.success !== false, message: res.message };
   }
 
   public async getMapsConfig(): Promise<any> {

@@ -25,11 +25,13 @@ export type { ApiEnvelope };
 
 export class ApiError extends Error {
   readonly statusCode: number;
+  readonly code?: string;
 
-  constructor(message: string, statusCode = 0) {
+  constructor(message: string, statusCode = 0, code?: string) {
     super(message);
     this.name = 'ApiError';
     this.statusCode = statusCode;
+    this.code = code;
   }
 
   get isUnauthorized() {
@@ -198,12 +200,19 @@ async function handleResponse<T>(response: Response): Promise<ApiEnvelope<T>> {
     return (parsed ?? {}) as ApiEnvelope<T>;
   }
 
+  const code =
+    typeof parsed?.code === 'string'
+      ? parsed.code
+      : typeof parsed?.error?.code === 'string'
+        ? parsed.error.code
+        : undefined;
+
   if (status === 401) {
     // Mirrors mobile: a 401 on a feature endpoint must not destroy the session.
-    throw new ApiError('Session expired. Please login again.', 401);
+    throw new ApiError(parsed?.message || 'Session expired. Please login again.', 401, code);
   }
 
-  throw new ApiError(parsed?.message || 'Request failed', status);
+  throw new ApiError(parsed?.message || 'Request failed', status, code);
 }
 
 export const apiGet = <T = any>(path: string, options?: Omit<RequestOptions, 'body'>) =>

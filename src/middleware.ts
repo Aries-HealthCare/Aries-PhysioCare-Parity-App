@@ -8,12 +8,14 @@ export function middleware(request: NextRequest) {
 
   if (isProtectedPath(pathname) && !hasSession) {
     const login = new URL('/login', request.url);
-    login.searchParams.set('next', pathname);
+    login.searchParams.set('next', pathname + request.nextUrl.search);
     return NextResponse.redirect(login);
   }
 
   if (isAuthPath(pathname) && hasSession && !request.nextUrl.searchParams.get('force')) {
-    return NextResponse.redirect(new URL('/app', request.url));
+    const next = request.nextUrl.searchParams.get('next');
+    const destination = next && next.startsWith('/') && !next.startsWith('//') ? next : '/app';
+    return NextResponse.redirect(new URL(destination, request.url));
   }
 
   return NextResponse.next();
