@@ -451,11 +451,8 @@ export function PostVisitSettlement({
         throw new Error(res.message || 'The visit could not be finalized. Nothing has been charged.');
       }
 
-      // Referral earnings computed server-side fire-and-forget
-      if (patientId) {
-        void providerApi.calculateReferralEarning(String(patientId), totalAmount, appointmentId);
-      }
-
+      // Patient referral commission (10% of collected session) is settled atomically
+      // server-side by CommissionService.creditTherapistWallet on verified payment.
       setFinalizedPaymentMethod(resolvedPaymentMethod);
       setFinalizedTotal(totalAmount);
 

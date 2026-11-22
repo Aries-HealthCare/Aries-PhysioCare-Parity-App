@@ -40,15 +40,17 @@ export default function AppReferralsDashboardPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const referralCode =
-    user?.axId ||
     user?.ariesId ||
-    (user?.fullName ? `${user.fullName.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 8)}1000` : 'ARIES1000');
-  const referralLink = `https://ariesphysiocare.in/registeration?ref=${encodeURIComponent(referralCode)}`;
+    user?.axId ||
+    (user?.fullName ? user.fullName.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 8) : '');
+  const referralLink = referralCode
+    ? `https://ariesphysiocare.in/registeration?ref=${encodeURIComponent(referralCode)}`
+    : 'https://ariesphysiocare.in/registeration';
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await providerApi.fetchReferrals(user?._id);
+      const data = await providerApi.fetchReferrals(user?.therapistId || user?._id);
       setReferrals(Array.isArray(data.referTherapist) ? data.referTherapist : []);
       setError(null);
     } catch (err: any) {
@@ -56,7 +58,7 @@ export default function AppReferralsDashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [user?._id]);
+  }, [user?.therapistId, user?._id]);
 
   useEffect(() => {
     void load();

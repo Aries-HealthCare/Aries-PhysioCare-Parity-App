@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useProviderAuth } from '@/services/provider-auth-context';
 import { providerApi } from '@/services/provider-api';
+import { resolveCompanionIdentity } from '@/lib/companion-avatar';
 import { useToast } from '@/hooks/use-toast';
 import {
   Bot,
@@ -105,9 +106,8 @@ export default function ProviderAIBuddyPage() {
   const { user } = useProviderAuth();
   const { toast } = useToast();
   const therapistName = user?.fullName || user?.name || 'Doctor';
-  const isFemaleUser = (user?.gender || '').toLowerCase().startsWith('f');
-  const defaultCompanionName = isFemaleUser ? 'Rivan' : 'Tanya';
-  const companionAvatarUrl = isFemaleUser ? '/images/avatar_m1.png' : '/images/avatar_f1.png';
+  const initialCompanion = resolveCompanionIdentity(user?.gender);
+  const defaultCompanionName = initialCompanion.defaultName;
 
   const [activeTab, setActiveTab] = useState<BuddyTab>('HUB');
   const [emotion, setEmotion] = useState<AvatarEmotion>('happy');
@@ -126,7 +126,9 @@ export default function ProviderAIBuddyPage() {
   const [missionBusyId, setMissionBusyId] = useState<string | null>(null);
   const [eventBusyId, setEventBusyId] = useState<string | null>(null);
 
-  const companionName = buddyProfile?.aiCustomName || defaultCompanionName;
+  const resolvedCompanion = resolveCompanionIdentity(user?.gender, buddyProfile);
+  const companionName = resolvedCompanion.displayName;
+  const companionAvatarUrl = resolvedCompanion.portraitUrl;
 
   const buildGreetingMessage = useCallback(
     (name: string, greeting?: string | null): ChatMessage => ({

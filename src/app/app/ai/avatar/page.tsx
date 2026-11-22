@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useProviderAuth } from '@/services/provider-auth-context';
 import { providerApi } from '@/services/provider-api';
+import { resolveCompanionIdentity } from '@/lib/companion-avatar';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -48,11 +49,11 @@ export default function WebAIAvatarStudioPage() {
   const { toast } = useToast();
 
   const therapistName = user?.fullName || user?.name || 'Doctor';
-  const isFemaleUser = (user?.gender || '').toLowerCase().startsWith('f');
-  const defaultName = isFemaleUser ? 'Rivan' : 'Tanya';
-  const avatarImage = isFemaleUser ? '/images/avatar_m1.png' : '/images/avatar_f1.png';
+  const [buddyProfile, setBuddyProfile] = useState<any | null>(null);
+  const companion = resolveCompanionIdentity(user?.gender, buddyProfile);
+  const avatarImage = companion.portraitUrl;
 
-  const [companionName, setCompanionName] = useState(defaultName);
+  const [companionName, setCompanionName] = useState<string>(companion.defaultName);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [studioState, setStudioState] = useState<StudioState>('idle');
   const [muted, setMuted] = useState(false);
@@ -84,6 +85,7 @@ export default function WebAIAvatarStudioPage() {
       .then((res) => {
         if (!active || !res) return;
         const prof = res.profile || res;
+        setBuddyProfile(prof);
         if (prof?.aiCustomName) setCompanionName(String(prof.aiCustomName));
         if (prof?.activeSessionId) setSessionId(String(prof.activeSessionId));
       })

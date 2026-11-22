@@ -41,16 +41,19 @@ export default function ProviderReferralsPage() {
   const [feedback, setFeedback] = useState<string | null>(null);
 
   const referralCode =
+    user?.ariesId ||
     user?.axId ||
     (user?.fullName
-      ? user.fullName.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 8) + '1000'
-      : 'ARIES1000');
-  const referralLink = `https://ariesphysiocare.in/registeration?ref=${referralCode}`;
+      ? user.fullName.replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 8)
+      : '');
+  const referralLink = referralCode
+    ? `https://ariesphysiocare.in/registeration?ref=${encodeURIComponent(referralCode)}`
+    : 'https://ariesphysiocare.in/registeration';
 
   const loadReferrals = async () => {
     setIsLoading(true);
     try {
-      const data = await providerApi.fetchReferrals(user?._id);
+      const data = await providerApi.fetchReferrals(user?.therapistId || user?._id);
       if (data.referTherapist && Array.isArray(data.referTherapist)) {
         setReferralList(data.referTherapist);
       } else {
@@ -67,7 +70,7 @@ export default function ProviderReferralsPage() {
 
   useEffect(() => {
     loadReferrals();
-  }, [user?._id]);
+  }, [user?.therapistId, user?._id]);
 
   const handleCopyCode = () => {
     navigator.clipboard.writeText(referralCode);
@@ -104,7 +107,7 @@ export default function ProviderReferralsPage() {
 
       if (res.success !== false) {
         setShowInviteModal(false);
-        setFeedback(`Colleague ${doctorName} invited successfully! ₹1,000 bonus will credit once they complete their first visit.`);
+        setFeedback(`Colleague ${doctorName} invited successfully! Earn up to ₹1,750 in milestone bonuses (₹250 on onboarding, ₹500 at 5 visits, ₹1,000 at 25 visits).`);
         toast({
           title: 'Colleague invited',
           description: `${doctorName} has been invited to AriesXpert.`,
@@ -148,7 +151,7 @@ export default function ProviderReferralsPage() {
             <h1 className="text-2xl font-extrabold tracking-tight">Colleague Therapist Referrals</h1>
           </div>
           <p className="text-xs text-muted-foreground mt-1">
-            Invite fellow physiotherapists and earn ₹1,000 when they complete their first doorstep session.
+            Invite fellow physiotherapists and earn up to ₹1,750 per colleague (₹250 on onboarding + ₹500 at 5 visits + ₹1,000 at 25 visits).
           </p>
         </div>
 
