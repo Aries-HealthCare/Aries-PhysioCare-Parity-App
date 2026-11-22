@@ -21,6 +21,7 @@ import {
   clearStoredToken,
 } from './api-transport';
 import { getBackendOrigin } from '@/lib/backend-api-config';
+import { persistBrowserSession } from '@/lib/expert-session';
 import {
   extractDocUrl,
   normalizeChecklist,
@@ -830,7 +831,10 @@ class ProviderApiService {
   ): Promise<{ success: boolean; token?: string; result?: MobileExpertProfile; message?: string }> {
     const res = await apiPost(path, undefined, { formData });
     const token = (res as any).accessToken || (res as any).token || (res as any).result?.token;
-    if (token) this.saveToken(token);
+    if (token) {
+      this.saveToken(token);
+      await persistBrowserSession(token);
+    }
     const rawExpert = (res as any).expert || res.result || res.data;
     return {
       success: res.success !== false,

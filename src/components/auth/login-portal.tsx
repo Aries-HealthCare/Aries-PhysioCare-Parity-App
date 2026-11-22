@@ -921,10 +921,10 @@ export function LoginPortal() {
             <div className="pt-2 border-t border-white/5 flex items-center justify-between text-[11px] text-slate-400">
               <span>Clinical Support:</span>
               <a
-                href="tel:+919876543210"
+                href="tel:+919136447006"
                 className="font-bold text-teal-400 hover:text-teal-300 font-mono transition-colors"
               >
-                +91 99990 00000
+                +91-9136447006
               </a>
             </div>
           </div>

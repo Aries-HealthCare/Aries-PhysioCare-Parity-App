@@ -1,7 +1,7 @@
 export const SESSION_COOKIE = 'ax_expert_session';
 export const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION || '2.0.0-parity';
 
-const PROTECTED_PREFIXES = ['/app', '/onboarding', '/onboarding-status'];
+const PROTECTED_PREFIXES = ['/app', '/onboarding-status'];
 const AUTH_PATHS = ['/login', '/verify', '/reset-password'];
 
 export function isProtectedPath(pathname: string): boolean {

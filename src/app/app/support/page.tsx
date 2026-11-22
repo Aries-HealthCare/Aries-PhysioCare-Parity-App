@@ -178,9 +178,21 @@ export default function ProviderSupportPage() {
             <span>Loading contact numbers…</span>
           </div>
         ) : quickDials.length === 0 ? (
-          <p className="text-xs text-muted-foreground italic">
-            No support numbers are configured for your region yet.
-          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <a
+              href="tel:+919136447006"
+              className="p-4 rounded-2xl border border-border/60 bg-muted/20 hover:bg-muted/40 transition-colors"
+            >
+              <div className="flex items-center gap-2 text-xs font-extrabold text-foreground">
+                <Phone className="w-4 h-4 text-primary" />
+                <span>Clinical Support &amp; Operations Desk</span>
+              </div>
+              <div className="text-xs font-mono font-bold text-muted-foreground mt-1">+91-9136447006</div>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Direct practitioner support line (8:00 AM – 9:30 PM IST)
+              </p>
+            </a>
+          </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {quickDials.map((dial: any, index: number) => {

@@ -2,10 +2,11 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { isAuthPath, isProtectedPath, resolveSafeNextPath } from './expert-session.ts';
 
-test('protects the expert workstation and onboarding', () => {
+test('protects the expert workstation and onboarding status while allowing public registration on /onboarding', () => {
   assert.equal(isProtectedPath('/app'), true);
   assert.equal(isProtectedPath('/app/visits'), true);
   assert.equal(isProtectedPath('/onboarding-status'), true);
+  assert.equal(isProtectedPath('/onboarding'), false);
   assert.equal(isProtectedPath('/privacy-policy'), false);
 });
 
