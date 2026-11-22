@@ -480,9 +480,12 @@ export function DispatchClaimView({ token }: DispatchClaimViewProps) {
                   className="w-full min-h-[44px] font-semibold"
                   onClick={() => {
                     if (activeToken) savePendingDispatchToken(activeToken);
+                    if (errorInfo?.requiresLogin || isAuthenticated) {
+                      providerApi.clearToken();
+                    }
                   }}
                 >
-                  <Link href={loginNextHref}>
+                  <Link href={errorInfo?.requiresLogin || isAuthenticated ? switchAccountHref : loginNextHref}>
                     <LogIn className="h-4 w-4" />
                     Sign in to continue
                   </Link>

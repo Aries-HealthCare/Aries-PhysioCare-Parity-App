@@ -2291,7 +2291,7 @@ class ProviderApiService {
   /** GET /api/app/gaming/bonus-offers */
   public async getBonusOffers(): Promise<any[]> {
     const res = await apiGet(`/api/app/gaming/bonus-offers?userId=${encodeURIComponent(this.getCurrentUserId() || '')}`);
-    return unwrapList(res, 'offers', 'bonusOffers');
+    return unwrapList(res, 'bonuses', 'offers', 'bonusOffers');
   }
 
   /**
@@ -2308,6 +2308,7 @@ class ProviderApiService {
   public async claimBonus(bonusId: string): Promise<{ success: boolean; result?: any; message?: string }> {
     const res = await apiPost('/api/app/gaming/claim-bonus', {
       userId: this.getCurrentUserId(),
+      offerId: bonusId,
       bonusId,
     });
     return { success: res.success !== false, result: unwrap(res), message: res.message };

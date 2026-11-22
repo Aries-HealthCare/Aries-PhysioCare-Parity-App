@@ -101,7 +101,9 @@ export default function ProviderDashboardPage() {
       setTodayAppointments(todayApts);
 
       const upcoming = todayApts.find((a: any) =>
-        !['Completed', 'Cancelled', 'completed', 'cancelled'].includes(a.status || '')
+        !['Completed', 'Cancelled', 'completed', 'cancelled'].includes(
+          a.appointmentStatus || a.status || ''
+        )
       );
       setNextAppointment(upcoming || null);
       setLoadError(null);
@@ -553,9 +555,16 @@ export default function ProviderDashboardPage() {
                         </div>
                         <p className="text-xs text-muted-foreground mt-0.5 truncate">
                           {apt.condition || apt.packageName || 'Physiotherapy Visit'}
-                          {(apt.patient?.address?.street || apt.patient?.address || apt.patientDetails?.address)
-                            ? ` • ${typeof apt.patient?.address === 'string' ? apt.patient.address : (apt.patient?.address?.street || apt.patientDetails?.address || '')}`
-                            : ''}
+                          {(() => {
+                            const rawAddr = apt.patient?.address ?? apt.patientDetails?.address ?? apt.address;
+                            const formattedAddr =
+                              typeof rawAddr === 'string'
+                                ? rawAddr.trim()
+                                : rawAddr && typeof rawAddr === 'object'
+                                  ? [rawAddr.street, rawAddr.city].filter(Boolean).join(', ').trim()
+                                  : '';
+                            return formattedAddr ? ` • ${formattedAddr}` : '';
+                          })()}
                         </p>
                         {session && (
                           <p className="text-[11px] font-semibold text-primary mt-1">

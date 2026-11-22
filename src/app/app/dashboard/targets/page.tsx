@@ -304,7 +304,7 @@ export default function TargetSetupPage() {
                     id="monthly-target-input"
                     type="number"
                     min={500}
-                    step={500}
+                    step={1}
                     value={inputValue}
                     onChange={(e) => handleNumericInputChange(e.target.value)}
                     className="pl-9 h-12 rounded-2xl text-xl font-mono font-black border-2 border-primary/30 focus-visible:ring-primary"
