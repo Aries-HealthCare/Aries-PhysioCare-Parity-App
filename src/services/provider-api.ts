@@ -2201,6 +2201,39 @@ class ProviderApiService {
     return { success: res.success !== false, message: res.message };
   }
 
+  /** POST /api/app/intelligence/track — live GPS heartbeat to backend + Firestore + Socket.IO */
+  public async trackLiveLocation(payload: {
+    lat: number;
+    lng: number;
+    accuracy?: number;
+    batteryLevel?: number;
+    networkStrength?: string;
+    heading?: number;
+    speed?: number;
+    platform?: string;
+    permissions?: Record<string, string>;
+  }): Promise<{ success: boolean; message?: string }> {
+    const res = await apiPost('/api/app/intelligence/track', {
+      ...payload,
+      platform: payload.platform || 'web',
+    });
+    return { success: res.success !== false, message: res.message };
+  }
+
+  /** POST /api/app/intelligence/device-sync — push device permission & telemetry state */
+  public async syncDeviceStatus(payload: {
+    permissions: Record<string, string>;
+    batteryLevel?: number;
+    networkStrength?: string;
+    devicePlatform?: string;
+  }): Promise<{ success: boolean; message?: string }> {
+    const res = await apiPost('/api/app/intelligence/device-sync', {
+      ...payload,
+      devicePlatform: payload.devicePlatform || 'web',
+    });
+    return { success: res.success !== false, message: res.message };
+  }
+
   /** POST /api/app/expert/isProfileVisible */
   public async setProfileVisible(visible: boolean): Promise<{ success: boolean; message?: string }> {
     const res = await apiPost('/api/app/expert/isProfileVisible', {

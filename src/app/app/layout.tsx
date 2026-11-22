@@ -17,6 +17,7 @@ import { FlashAlertHost } from '@/components/alerts/flash-alert-host';
 import { DesktopNotificationHost } from '@/components/alerts/desktop-notification-host';
 import { ProductTour } from '@/components/onboarding/product-tour';
 import { navLabel, readLocale } from '@/lib/i18n';
+import { useLiveGpsSync } from '@/hooks/use-live-gps-sync';
 
 function NavLink({
   href,
@@ -62,6 +63,12 @@ function ProviderAppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { user, dutyStatus, toggleDutyStatus, logout, isAuthenticated, isLoading } = useProviderAuth();
   const { revision } = useProviderRealtime();
+
+  // Keep Admin Live GPS & App Sync updated while the therapist is signed in and tracking is enabled
+  useLiveGpsSync({
+    therapistId: user?.id || user?._id || user?.uid || null,
+    enabled: Boolean(isAuthenticated && user && user.isActivityTracking !== false),
+  });
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showSOSModal, setShowSOSModal] = useState(false);

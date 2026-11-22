@@ -34,6 +34,8 @@ export type ProviderSocketEvent =
   | 'sos_backup_dispatch'
   | 'sos_status_change'
   | 'therapist_wallet_update'
+  | 'request_device_sync'
+  | 'remote_hardware_command'
   | 'new_message'
   | 'connection_state';
 
@@ -49,6 +51,8 @@ const ROOT_EVENTS: ProviderSocketEvent[] = [
   'peer_sos_alert',
   'sos_backup_dispatch',
   'therapist_wallet_update',
+  'request_device_sync',
+  'remote_hardware_command',
 ];
 
 class ProviderSocketService {
@@ -151,6 +155,36 @@ class ProviderSocketService {
   private joinRoom(therapistId: string) {
     // The backend expects the raw id string (socket/index.ts → join_therapist_room).
     this.socket?.emit('join_therapist_room', therapistId);
+  }
+
+  /** Emit a live GPS coordinate push over the root socket. */
+  emitMobileLocation(payload: {
+    therapistId: string;
+    lat: number;
+    lng: number;
+    accuracy?: number;
+    batteryLevel?: number;
+    networkStrength?: string;
+    heading?: number;
+    speed?: number;
+  }) {
+    if (!this.socket?.connected) return false;
+    this.socket.emit('mobile_location_update', payload);
+    return true;
+  }
+
+  /** Emit device permission status over the root socket. */
+  emitPermissionStatus(therapistId: string, permissions: Record<string, string>) {
+    if (!this.socket?.connected) return false;
+    this.socket.emit('mobile_permission_status', { therapistId, permissions });
+    return true;
+  }
+
+  /** Acknowledge an Admin remote hardware command. */
+  emitHardwareAck(therapistId: string, command: string, status: 'delivered' | 'failed' = 'delivered') {
+    if (!this.socket?.connected) return false;
+    this.socket.emit('mobile_hardware_ack', { therapistId, command, status });
+    return true;
   }
 
   /** Mirrors `SocketService.joinChat(roomId)`. */
