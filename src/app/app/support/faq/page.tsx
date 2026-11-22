@@ -19,7 +19,7 @@ import { extractFaqCategories } from '@/lib/wave2-helpers';
 
 export default function SupportFaqPage() {
   const { data, error, loading, reload } = useBackendQuery(() => providerApi.fetchFaqs(), []);
-  const faqs = Array.isArray(data) ? data : [];
+  const faqs = useMemo(() => (Array.isArray(data) ? data : []), [data]);
 
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('All');

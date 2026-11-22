@@ -43,7 +43,7 @@ function formatDateTime(raw?: string): string {
 export default function EarningsHistoryPage() {
   const { toast } = useToast();
   const { data, error, loading, reload } = useBackendQuery(() => providerApi.getTransactions(), []);
-  const transactions = Array.isArray(data) ? data : [];
+  const transactions = useMemo(() => (Array.isArray(data) ? data : []), [data]);
 
   const [category, setCategory] = useState<EarningsLedgerCategory>('all');
   const [txType, setTxType] = useState<EarningsLedgerType>('ALL');

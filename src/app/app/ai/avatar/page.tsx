@@ -101,9 +101,11 @@ export default function WebAIAvatarStudioPage() {
     const syncVoices = () => {
       const list = window.speechSynthesis.getVoices().filter((v) => v.lang.toLowerCase().startsWith('en'));
       setVoices(list);
-      if (list.length > 0 && !selectedVoiceUri) {
+      if (list.length > 0) {
         const preferred = list.find((v) => v.lang === 'en-IN') || list[0];
-        if (preferred) setSelectedVoiceUri(preferred.voiceURI);
+        if (preferred) {
+          setSelectedVoiceUri((prev) => prev || preferred.voiceURI);
+        }
       }
     };
     syncVoices();
@@ -111,7 +113,7 @@ export default function WebAIAvatarStudioPage() {
     return () => {
       window.speechSynthesis.onvoiceschanged = null;
     };
-  }, [selectedVoiceUri]);
+  }, []);
 
   // Auto-scroll transcript
   useEffect(() => {

@@ -38,7 +38,7 @@ const CATEGORIES = [
 export default function SupportTicketsPage() {
   const { toast } = useToast();
   const { data, error, loading, reload } = useBackendQuery(() => providerApi.getSupportTickets(), []);
-  const tickets = Array.isArray(data) ? data : [];
+  const tickets = useMemo(() => (Array.isArray(data) ? data : []), [data]);
 
   const [statusFilter, setStatusFilter] = useState<'all' | SupportTicketStatus>('all');
   const [showCreate, setShowCreate] = useState(false);
