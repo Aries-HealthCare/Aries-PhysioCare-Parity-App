@@ -83,6 +83,8 @@ export default function RapidFireGamePage() {
 
   const startedAtRef = useRef<number>(0);
   const advanceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const correctCountRef = useRef<number>(0);
+  const finishedOnceRef = useRef<boolean>(false);
 
   useEffect(() => {
     providerApi
@@ -93,40 +95,40 @@ export default function RapidFireGamePage() {
       .catch(() => {});
   }, []);
 
-  const finishRound = useCallback(
-    async (finalCorrect: number) => {
-      setPhase('FINISHED');
-      const timeTakenMs = startedAtRef.current ? Date.now() - startedAtRef.current : 0;
-      try {
-        await providerApi.submitDailyTournament({
-          gameType: 'rapid_fire',
-          isCorrect: finalCorrect >= Math.ceil(RAPID_QUESTIONS.length / 2),
-          timeTakenMs,
-        });
-      } catch (err: any) {
-        if (isRewardsPausedError(err)) {
-          setPausedBanner(true);
-        }
+  const finishRound = useCallback(async (finalCorrect: number) => {
+    if (finishedOnceRef.current) return;
+    finishedOnceRef.current = true;
+    if (advanceTimerRef.current) clearTimeout(advanceTimerRef.current);
+    setPhase('FINISHED');
+    const timeTakenMs = startedAtRef.current ? Date.now() - startedAtRef.current : 0;
+    try {
+      await providerApi.submitDailyTournament({
+        gameType: 'rapid_fire',
+        isCorrect: finalCorrect >= Math.ceil(RAPID_QUESTIONS.length / 2),
+        timeTakenMs,
+      });
+    } catch (err: any) {
+      if (isRewardsPausedError(err)) {
+        setPausedBanner(true);
       }
-    },
-    []
-  );
+    }
+  }, []);
 
-  // Countdown Timer
+  // Exact 1s countdown timer without resetting on score changes
   useEffect(() => {
     if (phase !== 'PLAYING') return;
     const interval = setInterval(() => {
-      setSecondsLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(interval);
-          void finishRound(correctCount);
-          return 0;
-        }
-        return prev - 1;
-      });
+      setSecondsLeft((prev) => (prev <= 1 ? 0 : prev - 1));
     }, 1000);
     return () => clearInterval(interval);
-  }, [phase, finishRound, correctCount]);
+  }, [phase]);
+
+  // Trigger finish cleanly when clock reaches 0
+  useEffect(() => {
+    if (phase === 'PLAYING' && secondsLeft === 0) {
+      void finishRound(correctCountRef.current);
+    }
+  }, [phase, secondsLeft, finishRound]);
 
   useEffect(() => {
     return () => {
@@ -136,6 +138,8 @@ export default function RapidFireGamePage() {
 
   const startRound = () => {
     if (advanceTimerRef.current) clearTimeout(advanceTimerRef.current);
+    finishedOnceRef.current = false;
+    correctCountRef.current = 0;
     setPhase('PLAYING');
     setSecondsLeft(ROUND_SECONDS);
     setQIndex(0);
@@ -154,9 +158,10 @@ export default function RapidFireGamePage() {
       setPicked(optIdx);
       const q = RAPID_QUESTIONS[qIndex];
       const isRight = optIdx === q.answer;
-      const nextCorrect = isRight ? correctCount + 1 : correctCount;
+      const nextCorrect = isRight ? correctCountRef.current + 1 : correctCountRef.current;
 
       if (isRight) {
+        correctCountRef.current = nextCorrect;
         const nextStreak = streak + 1;
         setStreak(nextStreak);
         setBestStreak((prev) => Math.max(prev, nextStreak));
@@ -175,7 +180,7 @@ export default function RapidFireGamePage() {
         }
       }, 700);
     },
-    [phase, picked, qIndex, correctCount, streak, finishRound]
+    [phase, picked, qIndex, streak, finishRound]
   );
 
   // Keyboard 1-4 shortcuts on desktop
