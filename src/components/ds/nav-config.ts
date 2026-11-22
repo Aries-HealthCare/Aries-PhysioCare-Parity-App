@@ -26,6 +26,7 @@ import {
   Map,
   Sparkles,
   BadgeCheck,
+  AudioLines,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -84,6 +85,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: '/app/quality', label: 'Quality', icon: Activity },
       { href: '/app/buddy', label: 'Buddy', icon: Bot },
       { href: '/app/ai', label: 'Intelligence', icon: Sparkles },
+      { href: '/app/ai/avatar', label: 'AI Avatar', icon: AudioLines },
     ],
   },
   {
@@ -111,5 +113,9 @@ export const MOBILE_BOTTOM_TABS: NavItem[] = [
 
 export function isNavActive(pathname: string, href: string): boolean {
   if (href === '/app') return pathname === '/app';
+  if (href === '/app/ai') return pathname === '/app/ai';
+  if (href === '/app/profile') {
+    return pathname === '/app/profile' || (pathname.startsWith('/app/profile/') && pathname !== '/app/profile/digital-id');
+  }
   return pathname === href || pathname.startsWith(`${href}/`);
 }
