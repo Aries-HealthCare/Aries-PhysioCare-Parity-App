@@ -55,6 +55,8 @@ function NavLink({
   );
 }
 
+const SIDEBAR_STORAGE_KEY = 'aries_sidebar_collapsed';
+
 function ProviderAppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -68,6 +70,42 @@ function ProviderAppShell({ children }: { children: React.ReactNode }) {
   const [sosSession, setSosSession] = useState<{ id?: string; lat?: number; lng?: number } | null>(null);
   const [sosError, setSosError] = useState<string | null>(null);
   const [unreadCount, setUnreadCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(SIDEBAR_STORAGE_KEY);
+      if (stored === '1' || stored === 'true') {
+        setSidebarCollapsed(true);
+      }
+    } catch {
+      /* ignore storage errors */
+    }
+  }, []);
+
+  const toggleSidebarCollapsed = useCallback(() => {
+    setSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(SIDEBAR_STORAGE_KEY, next ? '1' : '0');
+      } catch {
+        /* ignore storage errors */
+      }
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    setDrawerOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [drawerOpen]);
 
   useEffect(() => {
     if (!isAuthenticated) return;
@@ -93,6 +131,8 @@ function ProviderAppShell({ children }: { children: React.ReactNode }) {
   const therapistName =
     user?.fullName || user?.name || (user?.firstName ? `${user.firstName} ${user.lastName || ''}`.trim() : 'Provider');
   const axId = user?.axId || user?.ariesId || user?.therapistId || '—';
+  const profileImg = resolveProfileImage(user?.profilePhoto || user?.profileImageUrl || user?.profileImage);
+  const hasUnread = Boolean(unreadCount && unreadCount > 0);
 
   const triggerSOS = () => {
     setShowSOSModal(true);
@@ -138,13 +178,29 @@ function ProviderAppShell({ children }: { children: React.ReactNode }) {
     return () => clearTimeout(timer);
   }, [sosCountdown, transmitSOS]);
 
-  const abortSOS = () => {
+  const abortSOS = useCallback(() => {
     setSosCountdown(null);
     setShowSOSModal(false);
     setSosTransmitted(false);
     setSosError(null);
     setSosSession(null);
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!drawerOpen && !showSOSModal) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      if (drawerOpen) {
+        setDrawerOpen(false);
+        return;
+      }
+      if (showSOSModal && (sosCountdown !== null || sosTransmitted || sosError)) {
+        abortSOS();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [drawerOpen, showSOSModal, sosCountdown, sosTransmitted, sosError, abortSOS]);
 
   if (isLoading || !isAuthenticated) {
     return (
@@ -159,20 +215,20 @@ function ProviderAppShell({ children }: { children: React.ReactNode }) {
     <>
       <div className="p-4 rounded-3xl bg-gradient-to-br from-primary/10 via-card to-card border border-primary/20 space-y-2">
         <div className="flex items-center gap-3">
-          {resolveProfileImage(user?.profilePhoto) ? (
-            <img src={resolveProfileImage(user?.profilePhoto)!} alt="" className="w-11 h-11 rounded-2xl object-cover" />
+          {profileImg ? (
+            <img src={profileImg} alt={therapistName} className="w-11 h-11 rounded-2xl object-cover shrink-0" />
           ) : (
-            <div className="w-11 h-11 rounded-2xl bg-primary text-white flex items-center justify-center font-outfit font-extrabold">
+            <div className="w-11 h-11 rounded-2xl bg-primary text-white flex items-center justify-center font-outfit font-extrabold shrink-0">
               {therapistName[0]?.toUpperCase()}
             </div>
           )}
           <div className="min-w-0">
             <p className="text-xs font-outfit font-extrabold truncate">{therapistName}</p>
-            <p className="text-[10px] font-mono text-primary font-bold">{axId}</p>
+            <p className="text-[10px] font-mono text-primary font-bold truncate">{axId}</p>
           </div>
         </div>
       </div>
-      <nav className="space-y-4 flex-1 overflow-y-auto pr-1">
+      <nav className="space-y-4 flex-1 overflow-y-auto pr-1" aria-label="Primary navigation">
         {NAV_GROUPS.map((group) => (
           <div key={group.id}>
             <p className="px-3 mb-1 text-[10px] font-outfit font-bold uppercase tracking-[0.16em] text-muted-foreground">
@@ -185,7 +241,7 @@ function ProviderAppShell({ children }: { children: React.ReactNode }) {
                   href={item.href}
                   label={navLabel(item.href, item.label, locale)}
                   icon={item.icon}
-                  badge={item.href === '/app/notifications' && unreadCount ? String(unreadCount) : item.badge}
+                  badge={item.href === '/app/notifications' && hasUnread ? String(unreadCount) : item.badge}
                   active={isNavActive(pathname, item.href)}
                   onClick={onNavigate}
                 />
@@ -197,8 +253,9 @@ function ProviderAppShell({ children }: { children: React.ReactNode }) {
       <div className="pt-2 border-t border-border/80 space-y-2">
         <p className="px-3 text-[10px] text-muted-foreground font-mono">v{APP_VERSION}</p>
         <button
+          type="button"
           onClick={logout}
-          className="w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-2xl text-xs font-outfit font-bold text-destructive hover:bg-destructive/10"
+          className="w-full flex items-center gap-2.5 px-3.5 py-2.5 rounded-2xl text-xs font-outfit font-bold text-destructive hover:bg-destructive/10 transition-colors"
         >
           <LogOut className="w-4 h-4" />
           Logout
@@ -209,22 +266,30 @@ function ProviderAppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col font-body antialiased">
-      <header className="sticky top-0 z-40 h-16 border-b border-border/80 bg-card/90 backdrop-blur-xl px-4 sm:px-6 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <button type="button" onClick={() => setDrawerOpen(true)} className="lg:hidden p-2 rounded-2xl bg-muted/60">
+      <header className="sticky top-0 z-40 h-16 border-b border-border/80 bg-card/90 backdrop-blur-xl px-3 sm:px-6 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <button
+            type="button"
+            onClick={() => setDrawerOpen(true)}
+            aria-label="Open navigation menu"
+            aria-expanded={drawerOpen}
+            className="lg:hidden p-2 rounded-2xl bg-muted/60 hover:bg-muted transition-colors shrink-0"
+          >
             <Menu className="w-5 h-5" />
           </button>
-          <Link href="/app" prefetch={false}>
-            <DynamicAppLogo size={38} showText />
+          <Link href="/app" prefetch={false} className="min-w-0 shrink">
+            <DynamicAppLogo size={36} showText />
           </Link>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           <button
             type="button"
             onClick={toggleDutyStatus}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-2xl border text-xs font-outfit font-extrabold ${
+            aria-label={dutyStatus ? 'On duty — switch to Off duty' : 'Off duty — switch to On duty'}
+            aria-pressed={dutyStatus}
+            className={`flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-2xl border text-xs font-outfit font-extrabold transition-colors ${
               dutyStatus
-                ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30'
+                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
                 : 'bg-muted/40 text-muted-foreground border-border/80'
             }`}
           >
@@ -234,44 +299,71 @@ function ProviderAppShell({ children }: { children: React.ReactNode }) {
           <button
             type="button"
             onClick={triggerSOS}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-destructive/10 text-destructive border border-destructive/30 text-xs font-outfit font-extrabold"
+            aria-label="Trigger Emergency SOS"
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-2xl bg-destructive/10 text-destructive border border-destructive/30 hover:bg-destructive/15 transition-colors text-xs font-outfit font-extrabold"
           >
             <ShieldAlert className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">SOS</span>
           </button>
-          <Link href="/app/notifications" prefetch={false} className="relative p-2 rounded-2xl border bg-card">
+          <Link
+            href="/app/notifications"
+            prefetch={false}
+            aria-label={hasUnread ? `Notifications (${unreadCount} unread)` : 'Notifications'}
+            className="relative p-2 rounded-2xl border border-border/80 bg-card hover:bg-muted/60 transition-colors"
+          >
             <Bell className="w-4 h-4" />
-            {unreadCount ? <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-primary" /> : null}
+            {hasUnread ? (
+              <span
+                aria-hidden="true"
+                className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-primary text-white text-[9px] font-outfit font-extrabold flex items-center justify-center leading-none shadow-sm"
+              >
+                {unreadCount! > 99 ? '99+' : unreadCount}
+              </span>
+            ) : null}
           </Link>
           <ThemeToggle />
         </div>
       </header>
 
-      <div className="flex-1 flex overflow-hidden">
-        <aside className={`hidden lg:flex flex-col border-r border-border/80 bg-card/60 backdrop-blur-md p-4 space-y-4 overflow-y-auto transition-all ${sidebarCollapsed ? 'w-[76px]' : 'w-64 xl:w-72'}`}>
+      <div className="flex-1 flex min-w-0 overflow-hidden">
+        <aside
+          className={`hidden lg:flex flex-col shrink-0 border-r border-border/80 bg-card/60 backdrop-blur-md p-4 space-y-4 overflow-y-auto transition-all duration-200 ${
+            sidebarCollapsed ? 'w-[76px]' : 'w-64 xl:w-72'
+          }`}
+        >
           <button
             type="button"
-            onClick={() => setSidebarCollapsed((v) => !v)}
-            className="self-end p-2 rounded-xl bg-muted/50 text-muted-foreground"
+            onClick={toggleSidebarCollapsed}
+            className="self-end p-2 rounded-xl bg-muted/50 hover:bg-muted text-muted-foreground transition-colors"
             aria-label={sidebarCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+            aria-expanded={!sidebarCollapsed}
           >
             {sidebarCollapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
           </button>
           {sidebarCollapsed ? (
-            <nav className="space-y-2">
+            <nav className="space-y-2" aria-label="Primary navigation">
               {NAV_GROUPS.flatMap((group) => group.items).map((item) => {
                 const Icon = item.icon;
+                const label = navLabel(item.href, item.label, locale);
+                const showUnreadDot = item.href === '/app/notifications' && hasUnread;
                 return (
                   <Link
                     key={item.href}
                     href={item.href}
                     prefetch={false}
-                    title={item.label}
-                    className={`flex items-center justify-center w-10 h-10 rounded-2xl ${
-                      isNavActive(pathname, item.href) ? 'bg-primary text-white' : 'text-muted-foreground hover:bg-muted'
+                    title={label}
+                    aria-label={showUnreadDot ? `${label} (${unreadCount} unread)` : label}
+                    className={`relative flex items-center justify-center w-10 h-10 rounded-2xl transition-colors ${
+                      isNavActive(pathname, item.href) ? 'bg-primary text-white shadow-md shadow-primary/20' : 'text-muted-foreground hover:bg-muted'
                     }`}
                   >
                     <Icon className="w-4 h-4" />
+                    {showUnreadDot ? (
+                      <span
+                        aria-hidden="true"
+                        className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-primary ring-2 ring-card"
+                      />
+                    ) : null}
                   </Link>
                 );
               })}
@@ -280,15 +372,29 @@ function ProviderAppShell({ children }: { children: React.ReactNode }) {
             sidebar()
           )}
         </aside>
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 pb-28 lg:pb-8">{children}</main>
+        <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden p-4 sm:p-6 lg:p-8 pb-24 lg:pb-8">{children}</main>
       </div>
 
       {drawerOpen ? (
-        <div className="fixed inset-0 z-50 bg-black/60 lg:hidden" onClick={() => setDrawerOpen(false)}>
-          <div className="w-72 max-w-[85vw] h-full bg-card border-r p-5 flex flex-col space-y-4 overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Navigation menu"
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm lg:hidden"
+          onClick={() => setDrawerOpen(false)}
+        >
+          <div
+            className="w-72 max-w-[85vw] h-full bg-card border-r border-border p-5 flex flex-col space-y-4 overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between">
               <DynamicAppLogo size={34} showText />
-              <button onClick={() => setDrawerOpen(false)} className="w-8 h-8 rounded-xl bg-muted/60 flex items-center justify-center">
+              <button
+                type="button"
+                onClick={() => setDrawerOpen(false)}
+                aria-label="Close navigation menu"
+                className="w-9 h-9 rounded-xl bg-muted/60 hover:bg-muted flex items-center justify-center transition-colors"
+              >
                 <X className="w-4 h-4" />
               </button>
             </div>
@@ -297,31 +403,52 @@ function ProviderAppShell({ children }: { children: React.ReactNode }) {
         </div>
       ) : null}
 
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-card/95 backdrop-blur-2xl border-t px-2 py-2">
+      <nav
+        aria-label="Mobile quick navigation"
+        className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-card/95 backdrop-blur-2xl border-t border-border/80 px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]"
+      >
         <div className="flex items-center justify-around max-w-lg mx-auto">
           {MOBILE_BOTTOM_TABS.map((tab) => {
             const Icon = tab.icon;
             const active = tab.href === '/app/more' ? pathname === '/app/more' : isNavActive(pathname, tab.href);
+            const showMoreBadge = tab.href === '/app/more' && hasUnread;
             return (
               <Link
                 key={tab.href}
                 href={tab.href}
                 prefetch={false}
-                className={`flex flex-col items-center py-1.5 px-3 rounded-2xl ${active ? 'text-primary' : 'text-muted-foreground'}`}
+                aria-current={active ? 'page' : undefined}
+                aria-label={showMoreBadge ? `${tab.label} (${unreadCount} unread notifications)` : tab.label}
+                className={`flex flex-col items-center justify-center min-w-[56px] min-h-[44px] py-1 px-2.5 rounded-2xl transition-colors ${
+                  active ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+                }`}
               >
-                <Icon className="w-5 h-5" />
-                <span className="text-[10px] font-outfit mt-1">{tab.label}</span>
+                <span className="relative">
+                  <Icon className="w-5 h-5" />
+                  {showMoreBadge ? (
+                    <span
+                      aria-hidden="true"
+                      className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-primary ring-2 ring-card"
+                    />
+                  ) : null}
+                </span>
+                <span className="text-[10px] font-outfit font-bold mt-1">{tab.label}</span>
               </Link>
             );
           })}
         </div>
-      </div>
+      </nav>
 
       {showSOSModal ? (
-        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="sos-modal-title"
+          className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
+        >
           <div className="bg-card border-2 border-destructive rounded-3xl w-full max-w-sm p-6 text-center space-y-4">
             <ShieldAlert className="w-10 h-10 text-destructive mx-auto" />
-            <h2 className="text-xl font-outfit font-black text-destructive">
+            <h2 id="sos-modal-title" className="text-xl font-outfit font-black text-destructive">
               {sosError ? 'SOS failed' : sosTransmitted ? 'SOS transmitted' : 'Emergency SOS'}
             </h2>
             <p className="text-xs text-muted-foreground">
