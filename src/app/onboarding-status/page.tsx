@@ -67,7 +67,8 @@ const STATE_BADGE_CONFIG: Record<
 };
 
 function buildStepHref(step: number, key?: string): string {
-  const safeStep = Math.max(0, Math.min(4, Math.trunc(step)));
+  const normalizedStep = Number.isFinite(step) ? step : 0;
+  const safeStep = Math.max(0, Math.min(4, Math.trunc(normalizedStep)));
   return key
     ? `/onboarding?step=${safeStep}&focus=${encodeURIComponent(key)}`
     : `/onboarding?step=${safeStep}`;
@@ -83,6 +84,15 @@ export default function OnboardingStatusPage() {
   const refreshFnRef = useRef(refreshProfile);
   refreshFnRef.current = refreshProfile;
   const isPollingRef = useRef(false);
+  const pendingManualRefreshRef = useRef(false);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const displayState = useMemo(() => resolveOnboardingDisplayState(user), [user]);
   const checklist = useMemo(
@@ -107,7 +117,14 @@ export default function OnboardingStatusPage() {
   }, [checklist]);
 
   const handleRefresh = useCallback(async (silent = false) => {
-    if (isPollingRef.current) return;
+    if (isPollingRef.current) {
+      if (!silent) {
+        pendingManualRefreshRef.current = true;
+        setIsRefreshing(true);
+        setRefreshError('');
+      }
+      return;
+    }
     isPollingRef.current = true;
     if (!silent) {
       setIsRefreshing(true);
@@ -115,18 +132,24 @@ export default function OnboardingStatusPage() {
     }
     try {
       await refreshFnRef.current();
+      if (!isMountedRef.current) return;
       const now = new Date();
       setLastCheckedLabel(
         now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
       );
       setRefreshError('');
     } catch {
-      if (!silent) {
+      if (!silent && isMountedRef.current) {
         setRefreshError('Could not check for updates right now. Please try again shortly.');
       }
     } finally {
       isPollingRef.current = false;
-      if (!silent) setIsRefreshing(false);
+      if (pendingManualRefreshRef.current && isMountedRef.current) {
+        pendingManualRefreshRef.current = false;
+        void handleRefresh(false);
+      } else if (!silent && isMountedRef.current) {
+        setIsRefreshing(false);
+      }
     }
   }, []);
 

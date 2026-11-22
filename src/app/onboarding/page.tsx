@@ -51,6 +51,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { LegalPoliciesModal } from '@/components/legal-policies-modal';
+import { useToast } from '@/hooks/use-toast';
 import {
   ONBOARDING_STEP_TITLES,
   extractDocName,
@@ -66,6 +67,35 @@ import {
   shouldSkipLocalDraftStepOverride,
   type ParityChecklistItem,
 } from '@/lib/onboarding-checklist';
+
+function isSafeHttpUrl(val: unknown): boolean {
+  if (typeof val !== 'string') return false;
+  try {
+    const parsed = new URL(val.trim());
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function isDocumentReferenceUrl(val: string): boolean {
+  const trimmed = val.trim();
+  return isSafeHttpUrl(trimmed) || trimmed.startsWith('/') || trimmed.startsWith('data:');
+}
+
+function resolvePreferredDocName(
+  rawDoc: unknown,
+  fallbackDoc: unknown,
+  fallbackLabel: string
+): string {
+  if (rawDoc && typeof rawDoc === 'object' && !Array.isArray(rawDoc)) {
+    const name = (rawDoc as Record<string, unknown>).name;
+    if (typeof name === 'string' && name.trim().length > 0) {
+      return name.trim();
+    }
+  }
+  return extractDocName(rawDoc ?? fallbackDoc, fallbackLabel);
+}
 
 function findChecklistElement(key: string): HTMLElement | null {
   if (typeof document === 'undefined' || !key) return null;
@@ -372,6 +402,7 @@ const TIME_PREFERENCE_OPTIONS = [
 export default function ProviderOnboardingPage() {
   const { user, isLoading, updateUserData, refreshProfile } = useProviderAuth();
   const router = useRouter();
+  const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [currentStep, setCurrentStep] = useState(0);
@@ -444,6 +475,9 @@ export default function ProviderOnboardingPage() {
     ifscCode: '',
     upiId: '',
     panNumber: '',
+    utrNumber: '',
+    ssnEinNumber: '',
+    taxId: '',
   });
   const [bankDoc, setBankDoc] = useState<{ file?: File; url?: string; name: string } | null>(null);
 
@@ -485,6 +519,7 @@ export default function ProviderOnboardingPage() {
   const [isFeeWaived, setIsFeeWaived] = useState(false);
   const [isPayingFee, setIsPayingFee] = useState(false);
   const [pendingFeeOrderId, setPendingFeeOrderId] = useState<string | null>(null);
+  const [feeError, setFeeError] = useState<string | null>(null);
   const [isSubmittedSuccess, setIsSubmittedSuccess] = useState(false);
 
   // ── Hydrate asynchronously when `user._id` arrives (never lock on `null`) ──
@@ -646,7 +681,7 @@ export default function ProviderOnboardingPage() {
       if (aadharFrontUrl) {
         nextIdDocs.aadharCard = {
           url: aadharFrontUrl,
-          name: extractDocName(aadharFrontRaw, 'Aadhaar_Front'),
+          name: resolvePreferredDocName(user?.aadharCard, aadharFrontRaw, 'Aadhaar_Front'),
         };
       }
       const aadharBackRaw = user?.aadharCardBackUrl ?? user?.aadharCardBack;
@@ -654,38 +689,39 @@ export default function ProviderOnboardingPage() {
       if (aadharBackUrl) {
         nextIdDocs.aadharCardBack = {
           url: aadharBackUrl,
-          name: extractDocName(aadharBackRaw, 'Aadhaar_Back'),
+          name: resolvePreferredDocName(user?.aadharCardBack, aadharBackRaw, 'Aadhaar_Back'),
         };
       }
       // `normalizeExpertProfile` mirrors `bankInfo.panNumber` into `panCard` when no PAN image exists
-      const rawPanField = user?.panCardUrl ?? user?.panCard;
-      const panCandidateUrl = extractDocUrl(rawPanField);
+      const rawPanObj = user?.panCard;
+      const rawPanField = user?.panCardUrl ?? rawPanObj;
+      const panCandidateUrl = extractDocUrl(rawPanField).trim();
+      const knownPanNumber = String(user?.bankInfo?.panNumber || '').trim().toUpperCase();
       const isLikelyPanText =
-        !user?.panCardUrl &&
-        typeof rawPanField === 'string' &&
-        (rawPanField === user?.bankInfo?.panNumber ||
-          /^[A-Z]{5}[0-9]{4}[A-Z]$/i.test(rawPanField.trim()));
+        !isDocumentReferenceUrl(panCandidateUrl) ||
+        /^[A-Z]{5}[0-9]{4}[A-Z]$/i.test(panCandidateUrl) ||
+        (Boolean(knownPanNumber) && panCandidateUrl.toUpperCase() === knownPanNumber);
       if (panCandidateUrl && !isLikelyPanText) {
         nextIdDocs.panCard = {
           url: panCandidateUrl,
-          name: extractDocName(rawPanField, 'PAN_Card'),
+          name: resolvePreferredDocName(rawPanObj, rawPanField, 'PAN_Card'),
         };
       }
-      const extraCountryDocs: Array<[string, unknown, string]> = [
-        ['passportOrBrp', user?.passportOrBrpUrl ?? (user as any)?.passportOrBrp, 'Passport_BRP'],
-        ['personalausweis', user?.personalausweisUrl ?? (user as any)?.personalausweis, 'Personalausweis'],
-        ['anmeldungDocument', user?.anmeldungDocumentUrl ?? (user as any)?.anmeldungDocument, 'Anmeldung'],
-        ['emiratesId', user?.emiratesIdUrl ?? (user as any)?.emiratesId, 'Emirates_ID'],
-        ['passportVisa', user?.passportVisaUrl ?? (user as any)?.passportVisa, 'Passport_Visa'],
-        ['governmentPhotoId', user?.governmentPhotoIdUrl ?? (user as any)?.governmentPhotoId, 'Government_ID'],
-        ['driversLicense', (user as any)?.driversLicenseUrl ?? (user as any)?.driversLicense, 'Drivers_License'],
+      const extraCountryDocs: Array<[string, unknown, unknown, string]> = [
+        ['passportOrBrp', (user as any)?.passportOrBrp, user?.passportOrBrpUrl, 'Passport_BRP'],
+        ['personalausweis', (user as any)?.personalausweis, user?.personalausweisUrl, 'Personalausweis'],
+        ['anmeldungDocument', (user as any)?.anmeldungDocument, user?.anmeldungDocumentUrl, 'Anmeldung'],
+        ['emiratesId', (user as any)?.emiratesId, user?.emiratesIdUrl, 'Emirates_ID'],
+        ['passportVisa', (user as any)?.passportVisa, user?.passportVisaUrl, 'Passport_Visa'],
+        ['governmentPhotoId', (user as any)?.governmentPhotoId, user?.governmentPhotoIdUrl, 'Government_ID'],
+        ['driversLicense', (user as any)?.driversLicense, (user as any)?.driversLicenseUrl, 'Drivers_License'],
       ];
-      for (const [key, rawVal, fallbackLabel] of extraCountryDocs) {
-        const resolved = extractDocUrl(rawVal);
+      for (const [key, rawObj, urlFallback, fallbackLabel] of extraCountryDocs) {
+        const resolved = extractDocUrl(urlFallback ?? rawObj);
         if (resolved) {
           nextIdDocs[key] = {
             url: resolved,
-            name: extractDocName(rawVal, fallbackLabel),
+            name: resolvePreferredDocName(rawObj, urlFallback ?? rawObj, fallbackLabel),
           };
         }
       }
@@ -783,7 +819,7 @@ export default function ProviderOnboardingPage() {
       const hydratedCertChips: string[] = [];
       rawExtraCerts.forEach((entry, idx) => {
         const entryUrl = extractDocUrl(entry);
-        if (entryUrl && (/^https?:\/\//i.test(entryUrl) || entryUrl.startsWith('/'))) {
+        if (entryUrl && (isSafeHttpUrl(entryUrl) || entryUrl.startsWith('/'))) {
           hydratedExtraDocList.push({
             id: `hydrated_${idx}`,
             label:
@@ -818,14 +854,17 @@ export default function ProviderOnboardingPage() {
           transitNumber: (user.bankInfo as any).transitNumber || '',
           institutionNumber: (user.bankInfo as any).institutionNumber || '',
           sinNumber: (user.bankInfo as any).sinNumber || '',
-          utrNumber: (user.bankInfo as any).utrNumber || '',
-          ssnEinNumber: (user.bankInfo as any).ssnEinNumber || '',
-          taxId: (user.bankInfo as any).taxId || '',
+          utrNumber: (user.bankInfo as any).utrNumber || (user as any).utrNumber || '',
+          ssnEinNumber: (user.bankInfo as any).ssnEinNumber || (user as any).ssnEinNumber || '',
+          taxId: (user.bankInfo as any).taxId || (user as any).taxId || '',
         });
       } else if (resolvedFullName) {
         setBankFieldValues((prev) => ({
           ...prev,
           accountHolderName: prev.accountHolderName || resolvedFullName,
+          utrNumber: prev.utrNumber || (user as any)?.utrNumber || '',
+          ssnEinNumber: prev.ssnEinNumber || (user as any)?.ssnEinNumber || '',
+          taxId: prev.taxId || (user as any)?.taxId || '',
         }));
       }
 
@@ -1418,7 +1457,7 @@ export default function ProviderOnboardingPage() {
         if (profilePhotoFile) {
           fd.append('profilePhoto', profilePhotoFile);
         } else if (profilePhotoUrl) {
-          if (profilePhotoUrl.startsWith('http')) {
+          if (isSafeHttpUrl(profilePhotoUrl)) {
             fd.append('profilePhoto', profilePhotoUrl);
           }
           fd.append('profilePhotoUrl', profilePhotoUrl);
@@ -1537,6 +1576,9 @@ export default function ProviderOnboardingPage() {
           transitNumber: bankFieldValues.transitNumber || '',
           institutionNumber: bankFieldValues.institutionNumber || '',
           sinNumber: bankFieldValues.sinNumber || '',
+          utrNumber: bankFieldValues.utrNumber || '',
+          ssnEinNumber: bankFieldValues.ssnEinNumber || '',
+          taxId: bankFieldValues.taxId || '',
         };
 
         fd.append('bankInfo', JSON.stringify(bankPayload));
@@ -3718,6 +3760,7 @@ export default function ProviderOnboardingPage() {
                               type="button"
                               onClick={async () => {
                                 setIsPayingFee(true);
+                                setFeeError(null);
                                 try {
                                   const res = await providerApi.createTransaction({
                                     amount: feeConfig.amount,
@@ -3733,13 +3776,14 @@ export default function ProviderOnboardingPage() {
                                     payload.cf_payment_url ||
                                     payload.url;
                                   const orderId = payload.orderId || payload.order_id || payload.cfOrderId;
-                                  if (checkoutUrl && typeof window !== 'undefined') {
+                                  if (typeof checkoutUrl === 'string' && isSafeHttpUrl(checkoutUrl) && typeof window !== 'undefined') {
                                     window.open(checkoutUrl, '_blank', 'noopener,noreferrer');
                                   }
                                   if (!orderId && !(payload.status === 'PAID' || payload.paid)) {
                                     throw new Error('No hosted checkout URL was returned. Payment was not recorded.');
                                   }
                                   if (payload.status === 'PAID' || payload.paid) {
+                                    setFeeError(null);
                                     handleFeeConfirmed();
                                     return;
                                   }
@@ -3754,13 +3798,20 @@ export default function ProviderOnboardingPage() {
                                     }
                                   }
                                   if (confirmed) {
+                                    setFeeError(null);
                                     handleFeeConfirmed();
                                     setPendingFeeOrderId(null);
                                   } else {
                                     throw new Error('Checkout is still open. Complete payment, then tap Confirm payment.');
                                   }
                                 } catch (err: any) {
-                                  alert(err?.message || 'Registration fee payment failed.');
+                                  const msg = err?.message || 'Registration fee payment failed.';
+                                  setFeeError(msg);
+                                  toast({
+                                    title: 'Payment Not Completed',
+                                    description: msg,
+                                    variant: 'destructive',
+                                  });
                                 } finally {
                                   setIsPayingFee(false);
                                 }
@@ -3779,7 +3830,14 @@ export default function ProviderOnboardingPage() {
                             <Button
                               type="button"
                               onClick={() => {
-                                alert('Fee waivers are issued by HQ after review. This client cannot mark the fee as paid on its own.');
+                                const msg =
+                                  'Fee waivers are issued by HQ after review. This client cannot mark the fee as paid on its own.';
+                                setFeeError(msg);
+                                toast({
+                                  title: 'Fee Waiver Policy',
+                                  description: msg,
+                                  variant: 'destructive',
+                                });
                               }}
                               className="px-4 py-2.5 rounded-2xl border-slate-700 hover:bg-slate-800 text-slate-300 text-xs font-semibold"
                             >
@@ -3790,13 +3848,25 @@ export default function ProviderOnboardingPage() {
                                 type="button"
                                 onClick={async () => {
                                   setIsPayingFee(true);
+                                  setFeeError(null);
                                   try {
                                     const verified = await providerApi.verifyCashfreeTransaction(pendingFeeOrderId);
                                     if (!verified.success) throw new Error(verified.message || 'Payment is not confirmed yet.');
+                                    setFeeError(null);
                                     handleFeeConfirmed();
                                     setPendingFeeOrderId(null);
+                                    toast({
+                                      title: 'Payment Confirmed',
+                                      description: 'Your registration fee has been verified.',
+                                    });
                                   } catch (err: any) {
-                                    alert(err?.message || 'Payment is not confirmed yet.');
+                                    const msg = err?.message || 'Payment is not confirmed yet.';
+                                    setFeeError(msg);
+                                    toast({
+                                      title: 'Payment Pending',
+                                      description: msg,
+                                      variant: 'destructive',
+                                    });
                                   } finally {
                                     setIsPayingFee(false);
                                   }
@@ -3817,6 +3887,13 @@ export default function ProviderOnboardingPage() {
                         )}
                       </div>
                     </div>
+
+                    {feeError && (
+                      <div className="p-3 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-200 text-xs flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                        <span>{feeError}</span>
+                      </div>
+                    )}
 
                     <p className="text-xs text-slate-300 leading-relaxed border-t border-slate-800/80 pt-4">
                       {feeConfig.desc}
