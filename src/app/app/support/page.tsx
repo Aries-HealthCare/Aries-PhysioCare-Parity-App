@@ -119,8 +119,26 @@ export default function ProviderSupportPage() {
             <h1 className="text-2xl font-extrabold tracking-tight">Clinical Support &amp; Helpdesk</h1>
           </div>
           <p className="text-xs text-muted-foreground mt-1">
-            Operations hotline, doorstep safety protocols, and the clinical escalation desk.
+            Operations hotline, doorstep safety protocols, tickets, FAQs, and clinical escalation desk.
           </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button asChild variant="outline" size="sm" className="h-9 rounded-xl text-xs font-bold gap-1.5">
+            <Link href="/app/support/tickets">
+              <Ticket className="w-3.5 h-3.5 text-primary" /> My Tickets
+            </Link>
+          </Button>
+          <Button asChild variant="outline" size="sm" className="h-9 rounded-xl text-xs font-bold gap-1.5">
+            <Link href="/app/support/faq">
+              <FileQuestion className="w-3.5 h-3.5 text-primary" /> Help FAQs
+            </Link>
+          </Button>
+          <Button asChild size="sm" className="h-9 rounded-xl text-xs font-bold gap-1.5">
+            <Link href="/app/chat">
+              <MessageSquare className="w-3.5 h-3.5" /> Live Chat
+            </Link>
+          </Button>
         </div>
       </div>
 

@@ -193,6 +193,30 @@ export default function ProviderSettingsPage() {
         </div>
       )}
 
+      {/* Dedicated Mobile-Parity Settings Sub-Pages Hub */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+        {[
+          { href: '/app/settings/notifications', title: 'Notifications', sub: 'Channels & quiet hours' },
+          { href: '/app/settings/language', title: 'Language', sub: 'EN / HI / AR / ES' },
+          { href: '/app/settings/buddy', title: 'Aries Buddy', sub: 'Persona & coaching' },
+          { href: '/app/settings/privacy', title: 'Privacy', sub: 'Visibility & tracking' },
+          { href: '/app/settings/emergency', title: 'Emergency Roster', sub: 'SOS contacts' },
+          { href: '/app/settings/permissions', title: 'Permissions', sub: 'GPS, mic & camera' },
+          { href: '/app/settings/permissions/wizard', title: 'Setup Wizard', sub: 'Guided browser check' },
+          { href: '/app/profile/service-area', title: 'Service Area', sub: 'Pincodes & radius' },
+        ].map((tile) => (
+          <Link
+            key={tile.href}
+            href={tile.href}
+            prefetch={false}
+            className="p-4 rounded-2xl border border-border/80 bg-card hover:border-primary/40 hover:bg-primary/5 transition-all"
+          >
+            <p className="text-xs font-outfit font-extrabold text-foreground">{tile.title}</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">{tile.sub}</p>
+          </Link>
+        ))}
+      </div>
+
       {/* Notification channels */}
       <div className="bg-card border border-border/80 rounded-3xl p-6 shadow-sm space-y-4">
         <h3 className="text-sm font-extrabold text-foreground flex items-center gap-2">
