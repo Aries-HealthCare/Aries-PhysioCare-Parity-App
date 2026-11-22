@@ -2281,7 +2281,7 @@ class ProviderApiService {
   /** GET /api/app/ai/history — shared AI consultation history. */
   public async getAiHistory(): Promise<any[]> {
     const res = await apiGet('/api/app/ai/history');
-    return unwrapList(res, 'history', 'messages');
+    return unwrapList(res, 'consultations', 'history', 'messages');
   }
 
   // ==========================================
@@ -2602,7 +2602,12 @@ class ProviderApiService {
   }
 
   public async aiConsult(prompt: string, context?: Record<string, any>): Promise<any> {
-    const res = await apiPost('/api/app/ai/consult', { prompt, ...context });
+    const res = await apiPost('/api/app/ai/consult', {
+      query: prompt,
+      prompt,
+      domain: context?.domain || 'general',
+      ...context,
+    });
     return unwrap(res);
   }
 
