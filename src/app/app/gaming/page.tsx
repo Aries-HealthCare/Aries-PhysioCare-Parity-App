@@ -1,66 +1,224 @@
 'use client';
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useProviderAuth } from '@/services/provider-auth-context';
 import { providerApi } from '@/services/provider-api';
 import { useRealtimeEvent } from '@/services/provider-realtime';
+import { useToast } from '@/hooks/use-toast';
+import { computeLeagueProgress, resolveArenaAvatarSrc } from '@/lib/gaming-helpers';
 import {
   Trophy,
   Flame,
   Coins,
   Loader2,
-  AlertTriangle,
-  CheckCircle2,
-  XCircle,
-  Users,
   Gamepad2,
-  ArrowRightLeft,
+  Users,
+  Swords,
+  BookOpen,
+  Zap,
+  BriefcaseMedical,
+  Grid3X3,
+  Shuffle,
+  Puzzle,
+  LayoutGrid,
+  ShoppingBag,
+  UserCircle2,
+  ClipboardCheck,
+  TrendingUp,
+  ChevronRight,
+  Sparkles,
+  Crown,
+  RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 
-/**
- * Gaming Arena — every figure here comes from the backend gaming module, the same one
- * the Flutter `GamingService` drives:
- *   POST /api/app/gaming/profile                 { userId }        → { profile }
- *   GET  /api/app/gaming/leaderboard                               → { leaderboard }
- *   POST /api/app/gaming/enter                   { userId }        → { game }  (deducts entry fee)
- *   POST /api/app/gaming/submit                  { userId, gameType, isCorrect, timeTakenMs }
- *   POST /api/app/gaming/set-alias               { userId, alias }
- *   POST /api/app/gaming/buy-coins-from-wallet   { userId, amount }
- *   POST /api/app/gaming/withdraw-coins-to-wallet{ userId, amount }
- *
- * Scoring and coin balances are decided by the server — nothing is simulated locally,
- * so the coin balance shown here is the balance the phone shows.
- */
+interface ArenaCardItem {
+  href: string;
+  title: string;
+  subtitle: string;
+  badge?: string;
+  icon: typeof Gamepad2;
+  accent: string;
+}
 
-type GameMode = 'TOURNAMENT' | 'LEADERBOARD' | 'COINS' | 'QUIZZES' | 'TASKS';
+const COMPETITION_CARDS: ArenaCardItem[] = [
+  {
+    href: '/app/gaming/daily-tournament',
+    title: 'Daily Tournament',
+    subtitle: 'Daily clinical MCQ & ordering puzzle with server leaderboard',
+    badge: 'Featured',
+    icon: Trophy,
+    accent: 'bg-amber-500/15 text-amber-500 border-amber-500/25',
+  },
+  {
+    href: '/app/gaming/championship',
+    title: 'Championship Hub',
+    subtitle: 'Daily Duels, Weekly Cup, Monthly Grand & City Leagues',
+    icon: Crown,
+    accent: 'bg-purple-500/15 text-purple-500 border-purple-500/25',
+  },
+  {
+    href: '/app/gaming/head-to-head',
+    title: 'Head-to-Head & Categories',
+    subtitle: 'Clinical specialist & GK competition tracks',
+    icon: Swords,
+    accent: 'bg-rose-500/15 text-rose-500 border-rose-500/25',
+  },
+  {
+    href: '/app/gaming/topic-quizzes',
+    title: 'Topic Quizzes',
+    subtitle: 'Specialty-wise physiotherapy MCQ banks & leaderboards',
+    icon: BookOpen,
+    accent: 'bg-sky-500/15 text-sky-500 border-sky-500/25',
+  },
+  {
+    href: '/app/gaming/case-study',
+    title: 'Case Study Arena',
+    subtitle: 'Clinical differential diagnosis competition status',
+    icon: BriefcaseMedical,
+    accent: 'bg-emerald-500/15 text-emerald-500 border-emerald-500/25',
+  },
+];
+
+const MINIGAME_CARDS: ArenaCardItem[] = [
+  {
+    href: '/app/gaming/rapid-fire',
+    title: 'Rapid Fire Sprint',
+    subtitle: '60-second clinical reflexes MCQ challenge with keyboard controls',
+    badge: 'Playable',
+    icon: Zap,
+    accent: 'bg-orange-500/15 text-orange-500 border-orange-500/25',
+  },
+  {
+    href: '/app/gaming/word-search',
+    title: 'Anatomy Word Search',
+    subtitle: 'Find hidden clinical & anatomy terms across 8×8 grids',
+    badge: 'Playable',
+    icon: Grid3X3,
+    accent: 'bg-teal-500/15 text-teal-500 border-teal-500/25',
+  },
+  {
+    href: '/app/gaming/word-jumble',
+    title: 'Clinical Word Jumble',
+    subtitle: 'Unscramble physiotherapy terminology from clinical clues',
+    badge: 'Playable',
+    icon: Shuffle,
+    accent: 'bg-indigo-500/15 text-indigo-500 border-indigo-500/25',
+  },
+  {
+    href: '/app/gaming/crossword',
+    title: 'Physio Crossword',
+    subtitle: 'Server-validated daily crossword + unrated clinical practice',
+    badge: 'Playable',
+    icon: Puzzle,
+    accent: 'bg-cyan-500/15 text-cyan-500 border-cyan-500/25',
+  },
+  {
+    href: '/app/gaming/block-puzzle',
+    title: '8×8 Block Puzzle',
+    subtitle: 'Brain-break shift puzzle with Hold slot & line combos',
+    badge: 'Playable',
+    icon: LayoutGrid,
+    accent: 'bg-fuchsia-500/15 text-fuchsia-500 border-fuchsia-500/25',
+  },
+];
+
+const ECONOMY_CARDS: ArenaCardItem[] = [
+  {
+    href: '/app/gaming/tasks',
+    title: 'Proactive Clinical Tasks',
+    subtitle: 'Submit clinical case notes, reels & SOP tips for review',
+    badge: 'Live',
+    icon: ClipboardCheck,
+    accent: 'bg-emerald-500/15 text-emerald-500 border-emerald-500/25',
+  },
+  {
+    href: '/app/gaming/tasks/economy',
+    title: 'Task Economy & Milestones',
+    subtitle: 'CRM-verified home visit milestones & referral rewards',
+    icon: TrendingUp,
+    accent: 'bg-blue-500/15 text-blue-500 border-blue-500/25',
+  },
+  {
+    href: '/app/gaming/coin-shop',
+    title: 'Coin Shop & Bonus Offers',
+    subtitle: 'Wallet ⇄ Arena Coins packs & active bonus offers',
+    icon: ShoppingBag,
+    accent: 'bg-amber-500/15 text-amber-500 border-amber-500/25',
+  },
+  {
+    href: '/app/gaming/profile',
+    title: 'Arena Profile Hub',
+    subtitle: 'Customize alias, avatar, league progress & achievements',
+    icon: UserCircle2,
+    accent: 'bg-violet-500/15 text-violet-500 border-violet-500/25',
+  },
+];
+
+function ArenaCardGrid({
+  title,
+  subtitle,
+  items,
+}: {
+  title: string;
+  subtitle: string;
+  items: ArenaCardItem[];
+}) {
+  return (
+    <section className="space-y-3">
+      <div>
+        <h2 className="text-base sm:text-lg font-outfit font-extrabold text-foreground">{title}</h2>
+        <p className="text-xs text-muted-foreground">{subtitle}</p>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+        {items.map((item) => {
+          const Icon = item.icon;
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="group rounded-3xl border border-border/80 bg-card p-5 shadow-sm hover:border-primary/50 hover:shadow-md transition-all flex flex-col justify-between gap-4"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className={`w-11 h-11 rounded-2xl border flex items-center justify-center shrink-0 ${item.accent}`}>
+                  <Icon className="w-5 h-5" />
+                </div>
+                {item.badge ? (
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                    {item.badge}
+                  </span>
+                ) : null}
+              </div>
+
+              <div className="space-y-1">
+                <h3 className="text-sm sm:text-base font-extrabold text-foreground group-hover:text-primary transition-colors">
+                  {item.title}
+                </h3>
+                <p className="text-xs text-muted-foreground leading-relaxed">{item.subtitle}</p>
+              </div>
+
+              <div className="flex items-center gap-1 text-xs font-bold text-primary">
+                <span>Open</span>
+                <ChevronRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
+              </div>
+            </Link>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
 
 export default function ProviderGamingArenaPage() {
   const { user } = useProviderAuth();
+  const { toast } = useToast();
 
-  const [activeMode, setActiveMode] = useState<GameMode>('TOURNAMENT');
   const [profile, setProfile] = useState<any | null>(null);
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
+  const [taskCount, setTaskCount] = useState<number>(0);
+  const [quizCount, setQuizCount] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-
-  // Tournament state
-  const [game, setGame] = useState<any | null>(null);
-  const [isEntering, setIsEntering] = useState(false);
-  const [selectedOption, setSelectedOption] = useState<number | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitResult, setSubmitResult] = useState<{ correct: boolean; message?: string } | null>(null);
-  const questionShownAt = useRef<number | null>(null);
-
-  // Alias & coin transfer
-  const [aliasInput, setAliasInput] = useState('');
-  const [transferAmount, setTransferAmount] = useState('');
-  const [isTransferring, setIsTransferring] = useState(false);
-  const [quizzes, setQuizzes] = useState<any[]>([]);
-  const [tasks, setTasks] = useState<any[]>([]);
-  const [activeQuiz, setActiveQuiz] = useState<any | null>(null);
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -73,490 +231,234 @@ export default function ProviderGamingArenaPage() {
 
     if (profileRes.status === 'fulfilled') {
       setProfile(profileRes.value);
-      setAliasInput(profileRes.value?.alias || '');
-      setError(null);
     } else {
-      setError((profileRes.reason as any)?.message || 'Could not load your gaming profile.');
+      toast({
+        title: 'Could not sync Arena profile',
+        description: (profileRes.reason as any)?.message || 'Retry when back online.',
+        variant: 'destructive',
+      });
     }
-    if (leaderboardRes.status === 'fulfilled') setLeaderboard(leaderboardRes.value);
+    if (leaderboardRes.status === 'fulfilled') {
+      setLeaderboard(Array.isArray(leaderboardRes.value) ? leaderboardRes.value : []);
+    }
     if (quizRes.status === 'fulfilled') {
-      const value = quizRes.value as any;
-      setQuizzes(Array.isArray(value) ? value : value?.quizzes || []);
+      setQuizCount(Array.isArray(quizRes.value) ? quizRes.value.length : 0);
     }
     if (taskRes.status === 'fulfilled') {
-      const value = taskRes.value;
-      setTasks(Array.isArray(value) ? value : value ? [value] : []);
+      setTaskCount(Array.isArray(taskRes.value) ? taskRes.value.length : 0);
     }
     setIsLoading(false);
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  // Coin purchases settle through the wallet, so a wallet push can change the balance.
   useRealtimeEvent('therapist_wallet_update', () => {
     void load();
   });
 
-  const handleEnterTournament = async () => {
-    setIsEntering(true);
-    setError(null);
-    setNotice(null);
-    setSubmitResult(null);
-    try {
-      const res = await providerApi.getDailyTournament();
-      setGame(res.game);
-      setNotice(res.message || null);
-      setSelectedOption(null);
-      questionShownAt.current = Date.now();
-      await load();
-    } catch (err: any) {
-      setError(err?.message || 'Could not enter today’s tournament.');
-    } finally {
-      setIsEntering(false);
-    }
-  };
-
-  const handleSubmitAnswer = async () => {
-    if (selectedOption === null || !game) return;
-    setIsSubmitting(true);
-    setError(null);
-    const timeTakenMs = questionShownAt.current ? Date.now() - questionShownAt.current : 0;
-
-    // The backend records the outcome and scores it; the option text is compared against
-    // the answer the server holds when it grades the submission.
-    const chosen = game.mcqQuestion?.options?.[selectedOption];
-    const isCorrect = chosen !== undefined && chosen === game.mcqQuestion?.correctAnswer;
-
-    try {
-      const res = await providerApi.submitDailyTournament({
-        gameType: 'mcq',
-        isCorrect,
-        timeTakenMs,
-      });
-      if (!res.success) {
-        setError(res.message || 'Your answer could not be submitted.');
-        return;
-      }
-      setSubmitResult({ correct: isCorrect, message: res.message });
-      await load();
-    } catch (err: any) {
-      setError(err?.message || 'Your answer could not be submitted.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleSaveAlias = async () => {
-    if (aliasInput.trim().length < 3) {
-      setError('Your alias must be at least 3 characters.');
-      return;
-    }
-    setError(null);
-    try {
-      const res = await providerApi.setGamingAlias(aliasInput.trim());
-      if (!res.success) {
-        setError(res.message || 'That alias could not be saved.');
-        return;
-      }
-      setNotice(res.message || 'Alias updated.');
-      await load();
-    } catch (err: any) {
-      setError(err?.message || 'That alias could not be saved.');
-    }
-  };
-
-  const handleTransfer = async (direction: 'buy' | 'withdraw') => {
-    const amount = parseInt(transferAmount, 10);
-    if (!amount || amount <= 0) {
-      setError('Enter an amount greater than zero.');
-      return;
-    }
-    setIsTransferring(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const res =
-        direction === 'buy'
-          ? await providerApi.buyCoinsFromWallet(amount)
-          : await providerApi.withdrawCoinsToWallet(amount);
-      if (!res.success) {
-        setError(res.message || 'The coin transfer was declined.');
-        return;
-      }
-      setNotice(res.message || 'Transfer complete.');
-      setTransferAmount('');
-      await load();
-    } catch (err: any) {
-      setError(err?.message || 'The coin transfer was declined.');
-    } finally {
-      setIsTransferring(false);
-    }
-  };
-
   const coins = Number(profile?.coins ?? 0);
-  const league = profile?.league || profile?.activeTier || 'bronze';
+  const points = Number(profile?.points ?? profile?.xp ?? 0);
+  const streakDays = Number(profile?.streakDays ?? 0);
+  const alias = profile?.alias || '';
+  const avatarSrc = resolveArenaAvatarSrc(profile?.avatarId, alias || user?.fullName);
+  const leagueInfo = computeLeagueProgress(points);
+
   const myRankIndex = leaderboard.findIndex(
     (entry: any) =>
-      (profile?.alias && entry.alias === profile.alias) ||
-      String(entry.userId || '') === String(profile?.userId || '')
+      (alias && entry.alias === alias) ||
+      (profile?.userId && String(entry.userId || '') === String(profile.userId))
   );
 
-  const MODES: Array<{ id: GameMode; label: string; icon: React.ReactNode }> = [
-    { id: 'TOURNAMENT', label: 'Daily Tournament', icon: <Gamepad2 className="w-3.5 h-3.5" /> },
-    { id: 'QUIZZES', label: 'Topic quizzes', icon: <Trophy className="w-3.5 h-3.5" /> },
-    { id: 'TASKS', label: 'Tasks', icon: <Flame className="w-3.5 h-3.5" /> },
-    { id: 'LEADERBOARD', label: 'Leaderboard', icon: <Trophy className="w-3.5 h-3.5" /> },
-    { id: 'COINS', label: 'Coins & Alias', icon: <Coins className="w-3.5 h-3.5" /> },
-  ];
-
   return (
-    <div className="space-y-6 max-w-6xl mx-auto">
-      {/* Header banner */}
-      <div className="bg-gradient-to-r from-indigo-950 via-slate-900 to-purple-950 text-white border-2 border-purple-500/30 rounded-3xl p-6 sm:p-8 shadow-xl relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-r from-purple-500/10 to-transparent pointer-events-none" />
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[10px] font-extrabold uppercase px-3 py-1 rounded-full bg-purple-500/30 text-purple-300 border border-purple-400/40 flex items-center gap-1">
-                <Flame className="w-3.5 h-3.5 text-amber-400" />
-                <span>Clinical Championship</span>
-              </span>
-              {myRankIndex >= 0 && (
-                <span className="text-xs font-bold text-amber-400 bg-amber-400/10 px-2.5 py-1 rounded-full border border-amber-400/30">
-                  Rank #{myRankIndex + 1} today
+    <div className="space-y-7 max-w-7xl mx-auto">
+      {/* Hero Banner */}
+      <div className="bg-gradient-to-r from-indigo-950 via-slate-900 to-purple-950 text-white border border-purple-500/30 rounded-3xl p-6 sm:p-8 shadow-xl relative overflow-hidden">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10">
+          <div className="flex items-center gap-4">
+            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl overflow-hidden border-2 border-amber-400/60 bg-white/10 shrink-0 shadow-lg">
+              <img src={avatarSrc} alt={alias || 'Arena avatar'} className="w-full h-full object-cover" />
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-purple-500/30 text-purple-200 border border-purple-400/40 inline-flex items-center gap-1">
+                  <Flame className="w-3 h-3 text-amber-400" />
+                  Aries Arena
                 </span>
-              )}
-              <span className="text-xs font-bold text-purple-200 bg-purple-500/20 px-2.5 py-1 rounded-full border border-purple-400/30 capitalize">
-                {league} league
-              </span>
-            </div>
-            <h1 className="text-2xl sm:text-3xl font-outfit font-black">
-              {profile?.alias || user?.fullName || 'Gaming Arena'}
-            </h1>
-            <p className="text-xs text-purple-200/80">
-              {profile?.streakDays ? `${profile.streakDays}-day streak · ` : ''}
-              {profile?.points ?? 0} points earned
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl px-5 py-3">
-            <Coins className="w-6 h-6 text-amber-400" />
-            <div>
-              <div className="text-2xl font-black font-mono">{isLoading ? '—' : coins}</div>
-              <div className="text-[10px] uppercase tracking-wider text-purple-200/70 font-bold">Gold coins</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {error && (
-        <div className="p-4 rounded-2xl text-xs font-bold flex items-center gap-2 bg-red-500/10 text-red-600 border border-red-500/30">
-          <AlertTriangle className="w-4 h-4 shrink-0" />
-          <span>{error}</span>
-          <button type="button" onClick={() => load()} className="ml-auto underline">
-            Retry
-          </button>
-        </div>
-      )}
-
-      {notice && (
-        <div className="p-4 rounded-2xl text-xs font-bold flex items-center gap-2 bg-emerald-500/10 text-emerald-600 border border-emerald-500/30">
-          <CheckCircle2 className="w-4 h-4 shrink-0" />
-          <span>{notice}</span>
-        </div>
-      )}
-
-      {/* Mode tabs */}
-      <div className="flex gap-2 flex-wrap">
-        {MODES.map((mode) => (
-          <button
-            key={mode.id}
-            type="button"
-            onClick={() => setActiveMode(mode.id)}
-            className={`px-4 py-2 rounded-2xl text-xs font-bold flex items-center gap-1.5 transition-all ${
-              activeMode === mode.id
-                ? 'bg-primary text-white shadow-md'
-                : 'bg-muted text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            {mode.icon}
-            <span>{mode.label}</span>
-          </button>
-        ))}
-      </div>
-
-      {/* Daily tournament */}
-      {activeMode === 'TOURNAMENT' && (
-        <div className="bg-card border border-border/80 rounded-3xl p-6 shadow-sm space-y-4">
-          {!game ? (
-            <div className="text-center space-y-4 py-6">
-              <Gamepad2 className="w-10 h-10 text-primary mx-auto" />
-              <div>
-                <h3 className="text-base font-outfit font-extrabold text-foreground">
-                  Today&apos;s Clinical Championship
-                </h3>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Entering deducts the day&apos;s entry fee from your gold coins and unlocks the
-                  question set. One submission per game type, per day.
-                </p>
-              </div>
-              <Button
-                onClick={handleEnterTournament}
-                disabled={isEntering}
-                className="h-11 px-8 rounded-2xl font-extrabold text-xs"
-              >
-                {isEntering ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Enter Tournament'}
-              </Button>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-bold text-muted-foreground">
-                  {game.date} · entry {game.entryFee} coins
+                <span className="text-xs font-bold text-amber-300 bg-amber-400/15 px-2.5 py-0.5 rounded-full border border-amber-400/30">
+                  {leagueInfo.current.label}
                 </span>
-                {game.totalPoolCollected !== undefined && (
-                  <span className="font-bold text-amber-500">Pool: {game.totalPoolCollected} coins</span>
+                {myRankIndex >= 0 && (
+                  <span className="text-xs font-bold text-emerald-300 bg-emerald-500/15 px-2.5 py-0.5 rounded-full border border-emerald-400/30">
+                    Rank #{myRankIndex + 1} Today
+                  </span>
                 )}
               </div>
 
-              <h3 className="text-base font-outfit font-extrabold text-foreground">
-                {game.mcqQuestion?.question}
-              </h3>
+              <h1 className="text-2xl sm:text-3xl font-outfit font-black tracking-tight">
+                {alias || user?.fullName || 'Clinical Champion'}
+              </h1>
 
-              <div className="space-y-2">
-                {(game.mcqQuestion?.options || []).map((option: string, idx: number) => (
-                  <button
-                    key={`${option}-${idx}`}
-                    type="button"
-                    disabled={!!submitResult}
-                    onClick={() => setSelectedOption(idx)}
-                    className={`w-full text-left p-3.5 rounded-2xl border text-xs font-bold transition-all ${
-                      selectedOption === idx
-                        ? 'border-primary bg-primary/10 text-foreground'
-                        : 'border-border/60 bg-muted/20 text-muted-foreground hover:text-foreground'
-                    }`}
-                  >
-                    {option}
-                  </button>
-                ))}
+              <p className="text-xs text-purple-200/80">
+                {streakDays}-day streak · {points} Arena pts · {quizCount} topic quizzes · {taskCount} submitted tasks
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <Link
+              href="/app/gaming/coin-shop"
+              className="flex items-center gap-3 bg-white/10 hover:bg-white/15 border border-white/15 rounded-2xl px-5 py-3 transition-colors"
+            >
+              <Coins className="w-6 h-6 text-amber-400" />
+              <div>
+                <div className="text-2xl font-black font-mono leading-none">
+                  {isLoading ? '—' : coins}
+                </div>
+                <div className="text-[10px] uppercase tracking-wider text-purple-200/80 font-bold mt-1">
+                  Gold Coins
+                </div>
               </div>
+            </Link>
 
-              {submitResult ? (
+            <div className="flex flex-col gap-2">
+              <Link
+                href="/app/gaming/onboarding"
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-amber-400 text-slate-950 text-xs font-extrabold hover:bg-amber-300 transition-colors"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                {alias ? 'Edit Alias & Avatar' : 'Setup Arena Identity'}
+              </Link>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => void load()}
+                disabled={isLoading}
+                className="h-8 text-xs text-purple-100 hover:bg-white/10 hover:text-white"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${isLoading ? 'animate-spin' : ''}`} />
+                Refresh Arena
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* League Progress Bar */}
+        <div className="mt-6 pt-4 border-t border-white/10 space-y-1.5 relative z-10">
+          <div className="flex items-center justify-between text-[11px] text-purple-200">
+            <span className="font-bold">{leagueInfo.current.label}</span>
+            <span>
+              {leagueInfo.next
+                ? `${leagueInfo.pointsToNext} pts to ${leagueInfo.next.label}`
+                : 'Highest League Achieved'}
+            </span>
+          </div>
+          <div className="h-2 rounded-full bg-white/10 overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-amber-400 to-emerald-400 rounded-full transition-all"
+              style={{ width: `${leagueInfo.progressPct}%` }}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Onboarding CTA if alias missing */}
+      {!isLoading && !alias && (
+        <div className="rounded-3xl border border-primary/30 bg-primary/10 p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <p className="text-sm font-extrabold text-foreground">Create Your Anonymous Arena Identity</p>
+            <p className="text-xs text-muted-foreground">
+              Choose a leaderboard alias and clinician avatar to personalize your Aries Arena profile across web and mobile.
+            </p>
+          </div>
+          <Link
+            href="/app/gaming/onboarding"
+            className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-2xl bg-primary text-primary-foreground text-xs font-extrabold shrink-0"
+          >
+            Start Arena Setup
+            <ChevronRight className="w-4 h-4" />
+          </Link>
+        </div>
+      )}
+
+      {/* 3 Clean Launchpad Sections */}
+      <ArenaCardGrid
+        title="Tournaments & Clinical Competitions"
+        subtitle="Compete on daily leaderboards, clinical specialty quizzes, and championship leagues"
+        items={COMPETITION_CARDS}
+      />
+
+      <ArenaCardGrid
+        title="Interactive Clinical Mini-Games"
+        subtitle="Desktop & mobile web-native games — sharpen anatomy recall or take a quick shift brain-break"
+        items={MINIGAME_CARDS}
+      />
+
+      <ArenaCardGrid
+        title="Tasks, Coin Economy & Profile"
+        subtitle="Earn recognition through verified clinical milestones and proactive clinical contributions"
+        items={ECONOMY_CARDS}
+      />
+
+      {/* Live Daily Leaderboard Preview */}
+      <section className="rounded-3xl border border-border/80 bg-card p-6 shadow-sm space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Users className="w-4 h-4 text-primary" />
+            <h2 className="text-base font-outfit font-extrabold text-foreground">
+              Today&apos;s Top Clinicians
+            </h2>
+          </div>
+          <Link
+            href="/app/gaming/championship"
+            className="text-xs font-bold text-primary hover:underline inline-flex items-center gap-1"
+          >
+            Full Championship Standings
+            <ChevronRight className="w-3.5 h-3.5" />
+          </Link>
+        </div>
+
+        {isLoading ? (
+          <div className="flex items-center gap-2 py-4 text-xs text-muted-foreground">
+            <Loader2 className="w-4 h-4 animate-spin text-primary" />
+            Loading live standings…
+          </div>
+        ) : leaderboard.length === 0 ? (
+          <p className="text-xs text-muted-foreground">
+            No tournament scores posted for today yet. Check back after the next Daily Tournament round!
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+            {leaderboard.slice(0, 8).map((entry: any, idx: number) => {
+              const isMe = alias && entry.alias === alias;
+              return (
                 <div
-                  className={`p-4 rounded-2xl text-xs font-bold flex items-center gap-2 ${
-                    submitResult.correct
-                      ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/30'
-                      : 'bg-red-500/10 text-red-600 border border-red-500/30'
+                  key={entry._id || entry.alias || idx}
+                  className={`p-3.5 rounded-2xl border flex items-center justify-between text-xs ${
+                    isMe ? 'border-primary/40 bg-primary/5' : 'border-border/60 bg-muted/20'
                   }`}
                 >
-                  {submitResult.correct ? (
-                    <CheckCircle2 className="w-4 h-4" />
-                  ) : (
-                    <XCircle className="w-4 h-4" />
-                  )}
-                  <span>
-                    {submitResult.message ||
-                      (submitResult.correct
-                        ? 'Correct — your score is on today’s leaderboard.'
-                        : 'Recorded. Better luck in tomorrow’s round.')}
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="font-mono font-black text-muted-foreground w-6">
+                      #{entry.rank ?? idx + 1}
+                    </span>
+                    <span className="font-extrabold text-foreground truncate">
+                      {entry.alias || 'Anonymous'}
+                      {isMe ? <span className="text-primary ml-1">(you)</span> : null}
+                    </span>
+                  </div>
+                  <span className="font-mono font-bold text-primary shrink-0">
+                    {entry.score ?? entry.points ?? 0} pts
                   </span>
                 </div>
-              ) : (
-                <Button
-                  onClick={handleSubmitAnswer}
-                  disabled={selectedOption === null || isSubmitting}
-                  className="w-full h-11 rounded-2xl font-extrabold text-xs"
-                >
-                  {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Submit Answer'}
-                </Button>
-              )}
-
-              {game.orderingPuzzle && (
-                <div className="pt-4 border-t border-border/60 space-y-2">
-                  <h4 className="text-xs font-extrabold text-foreground">{game.orderingPuzzle.title}</h4>
-                  <ol className="space-y-1.5">
-                    {(game.orderingPuzzle.items || []).map((item: string, idx: number) => (
-                      <li
-                        key={`${item}-${idx}`}
-                        className="p-3 rounded-2xl bg-muted/20 border border-border/60 text-xs text-muted-foreground"
-                      >
-                        {item}
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Topic quizzes */}
-      {activeMode === 'QUIZZES' && (
-        <div className="bg-card border border-border/80 rounded-3xl p-6 shadow-sm space-y-3">
-          <h3 className="text-base font-outfit font-extrabold">Topic quizzes</h3>
-          {!quizzes.length ? (
-            <p className="text-xs text-muted-foreground">No topic quizzes assigned yet. Academy modules appear here and under Training.</p>
-          ) : (
-            quizzes.map((quiz) => (
-              <div key={quiz._id || quiz.id || quiz.topicId} className="flex items-center justify-between gap-3 p-3 rounded-2xl border border-border">
-                <div>
-                  <p className="text-sm font-bold">{quiz.name || quiz.title || 'Clinical quiz'}</p>
-                  <p className="text-[11px] text-muted-foreground">{quiz.count || quiz.questions?.length || 0} questions</p>
-                </div>
-                <Button
-                  className="rounded-2xl text-xs"
-                  onClick={async () => {
-                    const started = await providerApi.startTopicQuiz(quiz.topicId || quiz.id || quiz._id);
-                    setActiveQuiz(started);
-                    setNotice(started?.message || 'Quiz started.');
-                  }}
-                >
-                  Start
-                </Button>
-              </div>
-            ))
-          )}
-          {activeQuiz?.question ? (
-            <p className="text-xs text-muted-foreground">Live prompt: {activeQuiz.question?.question || activeQuiz.question}</p>
-          ) : null}
-        </div>
-      )}
-
-      {activeMode === 'TASKS' && (
-        <div className="bg-card border border-border/80 rounded-3xl p-6 shadow-sm space-y-3">
-          <h3 className="text-base font-outfit font-extrabold">Proactive tasks</h3>
-          {!tasks.length ? (
-            <p className="text-xs text-muted-foreground">No proactive tasks from the gaming economy yet.</p>
-          ) : (
-            tasks.map((task, idx) => (
-              <div key={task._id || task.id || idx} className="flex items-center justify-between gap-3 p-3 rounded-2xl border border-border">
-                <div>
-                  <p className="text-sm font-bold">{task.title || task.name || 'Task'}</p>
-                  <p className="text-[11px] text-muted-foreground">{task.description || task.reward ? `${task.reward} coins` : ''}</p>
-                </div>
-                <Button
-                  className="rounded-2xl text-xs"
-                  onClick={async () => {
-                    const res = await providerApi.submitProactiveTask({ taskId: task._id || task.id, completed: true });
-                    if (!res.success) setError(res.message || 'Task was not accepted.');
-                    else {
-                      setNotice(res.message || 'Task submitted.');
-                      await load();
-                    }
-                  }}
-                >
-                  Complete
-                </Button>
-              </div>
-            ))
-          )}
-        </div>
-      )}
-
-      {/* Leaderboard */}
-      {activeMode === 'LEADERBOARD' && (
-        <div className="bg-card border border-border/80 rounded-3xl p-6 shadow-sm space-y-4">
-          <h3 className="text-base font-outfit font-extrabold text-foreground flex items-center gap-2">
-            <Users className="w-4 h-4 text-primary" />
-            <span>Today&apos;s Leaderboard</span>
-          </h3>
-
-          {isLoading ? (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Loader2 className="w-4 h-4 animate-spin" />
-              <span>Loading leaderboard…</span>
-            </div>
-          ) : leaderboard.length === 0 ? (
-            <p className="text-xs text-muted-foreground italic">
-              No entries recorded for today yet — be the first to submit.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {leaderboard.map((entry: any, idx: number) => {
-                const isMe = profile?.alias && entry.alias === profile.alias;
-                return (
-                  <div
-                    key={entry._id || entry.alias || idx}
-                    className={`p-3.5 rounded-2xl border flex items-center justify-between text-xs ${
-                      isMe ? 'border-primary/40 bg-primary/5' : 'border-border/60 bg-muted/20'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="font-mono font-black text-muted-foreground w-6">#{entry.rank ?? idx + 1}</span>
-                      <span className="font-extrabold text-foreground">
-                        {entry.alias || 'Anonymous'}
-                        {isMe && <span className="text-primary ml-1">(you)</span>}
-                      </span>
-                    </div>
-                    <span className="font-mono font-bold text-primary">{entry.score ?? entry.points ?? 0}</span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Coins & alias */}
-      {activeMode === 'COINS' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="bg-card border border-border/80 rounded-3xl p-6 shadow-sm space-y-4">
-            <h3 className="text-base font-outfit font-extrabold text-foreground flex items-center gap-2">
-              <ArrowRightLeft className="w-4 h-4 text-primary" />
-              <span>Wallet ⇄ Coins</span>
-            </h3>
-            <p className="text-xs text-muted-foreground">
-              Coins are bought from and returned to your IMPS payout wallet. Both directions are
-              settled server-side, so the balance stays identical on your phone.
-            </p>
-
-            <Input
-              type="number"
-              value={transferAmount}
-              onChange={(e) => setTransferAmount(e.target.value)}
-              placeholder="Amount"
-              className="h-11 rounded-2xl font-mono"
-            />
-
-            <div className="flex gap-2">
-              <Button
-                onClick={() => handleTransfer('buy')}
-                disabled={isTransferring}
-                className="flex-1 h-11 rounded-2xl font-bold text-xs"
-              >
-                {isTransferring ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Buy coins'}
-              </Button>
-              <Button
-                onClick={() => handleTransfer('withdraw')}
-                disabled={isTransferring}
-                variant="outline"
-                className="flex-1 h-11 rounded-2xl font-bold text-xs"
-              >
-                Withdraw to wallet
-              </Button>
-            </div>
+              );
+            })}
           </div>
-
-          <div className="bg-card border border-border/80 rounded-3xl p-6 shadow-sm space-y-4">
-            <h3 className="text-base font-outfit font-extrabold text-foreground">Gaming Alias</h3>
-            <p className="text-xs text-muted-foreground">
-              Leaderboards are anonymous — your alias cannot match your real name.
-            </p>
-            <Input
-              value={aliasInput}
-              onChange={(e) => setAliasInput(e.target.value)}
-              placeholder="Pick an alias"
-              className="h-11 rounded-2xl"
-            />
-            <Button onClick={handleSaveAlias} className="w-full h-11 rounded-2xl font-bold text-xs">
-              Save alias
-            </Button>
-          </div>
-        </div>
-      )}
+        )}
+      </section>
     </div>
   );
 }
