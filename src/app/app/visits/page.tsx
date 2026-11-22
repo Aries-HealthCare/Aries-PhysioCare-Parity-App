@@ -1,14 +1,19 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useProviderAuth } from '@/services/provider-auth-context';
 import {
   providerApi,
   SOAPClinicalAssessment,
-  FinalizeVisitPayload,
   DynamicAssessmentForm,
 } from '@/services/provider-api';
 import { DynamicFormRenderer } from '@/components/forms/dynamic-form-renderer';
+import {
+  PostVisitSettlement,
+  type PostVisitSettlementSummary,
+} from '@/components/visits/post-visit-settlement';
+import { useToast } from '@/hooks/use-toast';
 import {
   Navigation,
   CheckCircle2,
@@ -17,24 +22,16 @@ import {
   Phone,
   ShieldCheck,
   Stethoscope,
-  Activity,
   FileText,
-  CreditCard,
-  QrCode,
-  Banknote,
-  Send,
   Loader2,
-  Sparkles,
-  AlertCircle,
-  TrendingUp,
-  Plus,
-  Check,
   RefreshCw,
   Calendar,
-  Users,
-  ChevronDown,
   Layers,
-  Sparkle,
+  Pause,
+  Play,
+  Plus,
+  ExternalLink,
+  AlertCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -49,32 +46,40 @@ type VisitStage =
   | 'FINALIZE_PAYMENT'
   | 'COMPLETED';
 
-const ADDON_PRICING: Record<string, number> = {
-  Cupping: 500,
-  Needling: 500,
-  IASTM: 500,
-  'Kinesology Tapeing': 300,
-};
-
-const TREATMENT_TYPES = [
-  'Manual Therapy',
-  'Electrotherapy (TENS/IFT)',
-  'Therapeutic Exercise',
-  'Ultrasound',
-  'Hot/Cold Therapy',
-  'Traction',
-  'Dry Needling',
-  'Gait Training',
-  'Soft Tissue Mobilization',
-  'PNF Stretching',
+const STEPPER_ITEMS: Array<{ id: number; label: string; stages: VisitStage[] }> = [
+  { id: 1, label: 'Start Travel', stages: ['SCHEDULED'] },
+  { id: 2, label: 'Arrive', stages: ['TRAVEL_STARTED'] },
+  { id: 3, label: 'OTP Gate', stages: ['ARRIVED', 'OTP_CHECKIN'] },
+  { id: 4, label: 'Clinical Form', stages: ['IN_SESSION'] },
+  { id: 5, label: 'Settlement', stages: ['FINALIZE_PAYMENT', 'COMPLETED'] },
 ];
 
-const PAIN_NATURE_OPTS = ['Throbbing', 'Dull Ache', 'Burning', 'Stabbing', 'Stiff', 'Sharp'];
-const REHAB_PHASES = ['Acute (0-2 wks)', 'Subacute (2-6 wks)', 'Chronic (>6 wks)', 'Functional Return', 'Sports Return'];
-const MMT_GRADES = ['Grade 0 — Zero', 'Grade 1 — Trace', 'Grade 2 — Poor', 'Grade 3 — Fair', 'Grade 4 — Good', 'Grade 5 — Normal'];
+function getStageIndex(stage: VisitStage): number {
+  switch (stage) {
+    case 'SCHEDULED':
+      return 0;
+    case 'TRAVEL_STARTED':
+      return 1;
+    case 'ARRIVED':
+    case 'OTP_CHECKIN':
+      return 2;
+    case 'IN_SESSION':
+      return 3;
+    case 'FINALIZE_PAYMENT':
+    case 'COMPLETED':
+      return 4;
+  }
+}
 
-export default function ProviderVisitsPage() {
+function VisitsWorkspace() {
   const { user } = useProviderAuth();
+  const { toast } = useToast();
+  const searchParams = useSearchParams();
+
+  const targetAptParam = searchParams.get('apt') || searchParams.get('appointmentId');
+  const targetPatientParam = searchParams.get('patient');
+  const didAutoSelectRef = useRef(false);
+
   const [appointments, setAppointments] = useState<any[]>([]);
   const [availableForms, setAvailableForms] = useState<DynamicAssessmentForm[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -85,16 +90,19 @@ export default function ProviderVisitsPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [otpInput, setOtpInput] = useState('');
   const [otpError, setOtpError] = useState('');
-  const [selectedAddOns, setSelectedAddOns] = useState<string[]>([]);
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'upi_qr' | 'online'>('cash');
-  const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+  const [feedback, setFeedback] = useState<{
+    type: 'success' | 'error' | 'info';
+    text: string;
+  } | null>(null);
   const [formMode, setFormMode] = useState<'dynamic' | 'soap'>('dynamic');
-  const [selectedAssessmentForm, setSelectedAssessmentForm] = useState<DynamicAssessmentForm | null>(null);
+  const [selectedAssessmentForm, setSelectedAssessmentForm] =
+    useState<DynamicAssessmentForm | null>(null);
   const [treatmentSeconds, setTreatmentSeconds] = useState(0);
   const [isTimerRunning, setIsTimerRunning] = useState(true);
-  const [qrImage, setQrImage] = useState<string | null>(null);
-  const [qrOrderId, setQrOrderId] = useState<string | null>(null);
-  const [proofFile, setProofFile] = useState<File | null>(null);
+  const [targetMinutes, setTargetMinutes] = useState(45);
+  const [completionSummary, setCompletionSummary] = useState<PostVisitSettlementSummary | null>(
+    null
+  );
 
   // Treatment stopwatch timer
   useEffect(() => {
@@ -133,7 +141,7 @@ export default function ProviderVisitsPage() {
     try {
       const [apts, forms] = await Promise.all([
         providerApi.getAppointments(),
-        providerApi.fetchAssessments(),
+        providerApi.fetchAssessments().catch(() => [] as DynamicAssessmentForm[]),
       ]);
       setAppointments(apts);
       setAvailableForms(forms);
@@ -146,50 +154,86 @@ export default function ProviderVisitsPage() {
   }, []);
 
   useEffect(() => {
-    loadData();
+    void loadData();
   }, [loadData]);
 
-  // Handle starting a visit
-  const handleSelectAppointment = async (apt: any) => {
+  // Handle starting / selecting an appointment
+  const handleSelectAppointment = useCallback(async (apt: any) => {
     setActiveApt(apt);
     setOtpInput('');
     setOtpError('');
-    setSelectedAddOns([]);
     setFeedback(null);
+    setCompletionSummary(null);
+    setTreatmentSeconds(0);
+    setIsTimerRunning(true);
+    setTargetMinutes(45);
 
-    // Determine Visit Type: Session 1 is First Visit, Session > 1 is Regular Visit
     const sessionNum = apt.sessionNumber || apt.sessionsDone || 1;
     const isFirst = sessionNum === 1 || !apt.sessionsDone;
     const vType = isFirst ? 'First Visit' : 'Regular Visit';
     const condition = apt.condition || apt.packageName || 'Orthopedic';
 
-    // Find matching form from 34 backend forms
-    const matched = await providerApi.getAssessmentFormConfig(condition, vType);
-    setSelectedAssessmentForm(matched);
+    try {
+      const matched = await providerApi.getAssessmentFormConfig(condition, vType);
+      setSelectedAssessmentForm(matched);
+    } catch {
+      setSelectedAssessmentForm(null);
+    }
 
-    // Pre-populate SOAP with appointment details
     setSoap((prev) => ({
       ...prev,
-      chiefComplaint: apt.condition || apt.packageName || 'Post-TKR Knee Joint Replacement Rehab',
+      chiefComplaint: apt.condition || apt.packageName || '',
       clinicalDiagnosis: apt.condition || apt.packageName || '',
     }));
 
-    // Map backend status to our visit stages
-    const st = apt.status || apt.visitStatus;
+    const st = String(apt.status || apt.visitStatus || '');
     if (st === 'In_Progress' || st === 'IN_SESSION') setVisitStage('IN_SESSION');
     else if (st === 'ARRIVED') setVisitStage('OTP_CHECKIN');
     else if (st === 'TRAVEL_STARTED') setVisitStage('ARRIVED');
     else setVisitStage('SCHEDULED');
-  };
+  }, []);
+
+  // Auto-select deep-linked appointment once appointments load
+  useEffect(() => {
+    if (isLoading || didAutoSelectRef.current) return;
+    if (!targetAptParam && !targetPatientParam) {
+      didAutoSelectRef.current = true;
+      return;
+    }
+    if (appointments.length === 0) return;
+
+    let matched: any = null;
+    if (targetAptParam) {
+      matched = appointments.find(
+        (a) =>
+          String(a._id || '') === targetAptParam || String(a.id || '') === targetAptParam
+      );
+    }
+    if (!matched && targetPatientParam) {
+      const needle = targetPatientParam.trim().toLowerCase();
+      matched = appointments.find((a) => {
+        const pid = String(a.patientId || a.patient?._id || a.patient?.id || '').toLowerCase();
+        const pname = String(
+          a.patientName || a.patient?.name || a.patientDetails?.name || ''
+        ).toLowerCase();
+        return pid === needle || (needle.length > 0 && pname.includes(needle));
+      });
+    }
+
+    didAutoSelectRef.current = true;
+    if (matched) {
+      void handleSelectAppointment(matched);
+    }
+  }, [isLoading, appointments, targetAptParam, targetPatientParam, handleSelectAppointment]);
 
   const handleStartTravel = async () => {
     if (!activeApt) return;
     const feeOnRecord = Number(activeApt.perSessionPrice ?? activeApt.amount ?? 0) || 0;
     if (feeOnRecord <= 0) {
-      setFeedback({
-        type: 'error',
-        text: 'This appointment has no session fee on record. Ask operations to set the price before finalizing.',
-      });
+      const msg =
+        'This appointment has no session fee on record. Ask operations to set the price before finalizing.';
+      setFeedback({ type: 'error', text: msg });
+      toast({ variant: 'destructive', title: 'Missing Session Fee', description: msg });
       return;
     }
 
@@ -198,7 +242,10 @@ export default function ProviderVisitsPage() {
     try {
       await providerApi.startTravel(id);
       setVisitStage('TRAVEL_STARTED');
-      setFeedback({ type: 'info', text: 'GPS Navigation started. Patient notified of therapist transit.' });
+      setFeedback({
+        type: 'info',
+        text: 'Transit started. Proceed to the patient residence and mark arrival at the doorstep.',
+      });
     } catch {
       setVisitStage('TRAVEL_STARTED');
     } finally {
@@ -206,12 +253,6 @@ export default function ProviderVisitsPage() {
     }
   };
 
-  /**
-   * The backend geo-validates the arrival (`validate-arrival`). Mobile only advances the
-   * visit when that call succeeds (`VisitFlowService.markReached` rethrows on failure),
-   * so this must not advance optimistically either — an unvalidated arrival would leave
-   * the appointment in a different state on the server than on screen.
-   */
   const handleMarkArrived = async () => {
     if (!activeApt) return;
     setIsProcessing(true);
@@ -232,16 +273,21 @@ export default function ProviderVisitsPage() {
         position ? { lat: position.coords.latitude, lng: position.coords.longitude } : undefined
       );
       if (!res.success) {
-        setFeedback({ type: 'error', text: res.message || 'Arrival could not be validated. Try again.' });
+        const msg = res.message || 'Arrival could not be validated. Try again.';
+        setFeedback({ type: 'error', text: msg });
+        toast({ variant: 'destructive', title: 'Arrival Not Validated', description: msg });
         return;
       }
       setVisitStage('ARRIVED');
-      setFeedback({ type: 'info', text: 'Arrived at patient doorstep. Request 4-digit check-in OTP.' });
-    } catch (err: any) {
       setFeedback({
-        type: 'error',
-        text: err?.message || 'Arrival could not be validated. Check your connection and try again.',
+        type: 'info',
+        text: 'Arrived at patient doorstep. Request the 4-digit check-in OTP.',
       });
+    } catch (err: any) {
+      const msg =
+        err?.message || 'Arrival could not be validated. Check your connection and try again.';
+      setFeedback({ type: 'error', text: msg });
+      toast({ variant: 'destructive', title: 'Arrival Error', description: msg });
     } finally {
       setIsProcessing(false);
     }
@@ -260,106 +306,57 @@ export default function ProviderVisitsPage() {
     try {
       const res = await providerApi.checkInWithOtp(id, otpInput.trim());
       if (!res.success) {
-        // The OTP is the patient's proof that the visit began — never wave it through.
         setOtpError(res.message || 'That OTP was not accepted. Ask the patient to read it again.');
         return;
       }
       setVisitStage('IN_SESSION');
-      setFeedback({ type: 'success', text: 'OTP verified. Clinical treatment session is now active.' });
+      setIsTimerRunning(true);
+      setFeedback({
+        type: 'success',
+        text: 'OTP verified. Clinical treatment session is now active.',
+      });
+      toast({
+        title: 'Session Started',
+        description: 'Patient OTP verified and treatment timer started.',
+      });
     } catch (err: any) {
-      setOtpError(err?.message || 'Could not verify the OTP. Check your connection and try again.');
+      setOtpError(
+        err?.message || 'Could not verify the OTP. Check your connection and try again.'
+      );
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const handleDynamicFormSubmitted = (data: Record<string, any>) => {
-    setFeedback({ type: 'success', text: 'Clinical assessment form saved and synchronized with central database.' });
+  const handleDynamicFormSubmitted = (_data: Record<string, any>) => {
+    setFeedback({
+      type: 'success',
+      text: 'Clinical assessment form saved and synchronized with central database.',
+    });
     setVisitStage('FINALIZE_PAYMENT');
   };
 
-  const handleFinalizeVisit = async () => {
-    if (!activeApt) return;
-    setIsProcessing(true);
-    const id = activeApt._id || activeApt.id;
-    // Never invent a price — the appointment record carries the agreed fee. If it is
-    // missing the visit cannot be finalized (guarded below), rather than charging a
-    // default the patient never agreed to.
-    const sessionFee = Number(activeApt.perSessionPrice ?? activeApt.amount ?? 0) || 0;
-    const addOnTotal = selectedAddOns.reduce((sum, name) => sum + (ADDON_PRICING[name] || 0), 0);
-
-    const payload: FinalizeVisitPayload = {
-      appointmentId: id,
-      expertId: user?._id || user?.id,
-      patientId: activeApt.patientId || activeApt.patient?._id,
-      sessionFee,
-      addOnFees: addOnTotal,
-      totalAmount: sessionFee + addOnTotal,
-      paymentMethod,
-      isPaymentCollected: true,
-      selectedAddOns,
-      soapNotes: soap,
-      completedAt: new Date().toISOString(),
-    };
-
-    try {
-      if (paymentMethod === 'upi_qr') {
-        const qr = await providerApi.generatePaymentQr({
-          appointmentId: id,
-          amount: sessionFee + addOnTotal,
-        });
-        const image = qr?.qrImage || qr?.qr || qr?.image;
-        const orderId = qr?.orderId || qr?.order_id;
-        if (image) setQrImage(image);
-        if (orderId) {
-          setQrOrderId(orderId);
-          const status = await providerApi.getPaymentStatus(orderId);
-          const paid = ['PAID', 'paid', 'SUCCESS', 'success'].includes(String(status?.status || status?.paymentStatus || ''));
-          if (!paid) {
-            setFeedback({ type: 'info', text: 'UPI QR generated. Finalize after the payment status is PAID.' });
-            return;
-          }
-        }
-      }
-      if (paymentMethod === 'cash' && proofFile) {
-        const fd = new FormData();
-        fd.append('file', proofFile);
-        fd.append('appointmentId', id);
-        await providerApi.uploadPaymentProof(id, fd);
-      }
-
-      const res = await providerApi.finalizeVisit({
-        ...payload,
-        isPaymentCollected: paymentMethod !== 'online',
-      });
-      if (!res.success) {
-        setFeedback({
-          type: 'error',
-          text: res.message || 'The visit could not be finalized. Nothing has been charged.',
-        });
-        return;
-      }
-      setVisitStage('COMPLETED');
-      setFeedback({
-        type: 'success',
-        text: `Visit finalized. ₹${sessionFee + addOnTotal} recorded against this appointment.`,
-      });
-      // Referral earnings are computed server-side after finalization, same as mobile.
-      if (payload.patientId) {
-        void providerApi.calculateReferralEarning(payload.patientId, payload.totalAmount, id);
-      }
-      loadData();
-    } catch (err: any) {
-      setFeedback({
-        type: 'error',
-        text: err?.message || 'The visit could not be finalized. Nothing has been charged.',
-      });
-    } finally {
-      setIsProcessing(false);
-    }
+  const handleToggleTimer = () => {
+    const nextRunning = !isTimerRunning;
+    setIsTimerRunning(nextRunning);
+    toast({
+      title: nextRunning ? 'Treatment Timer Resumed' : 'Treatment Timer Paused',
+      description: nextRunning
+        ? `Continuing session at ${activeSessionTime}.`
+        : `Paused at ${activeSessionTime}. Tap Resume when ready.`,
+    });
   };
 
-  // Filter list
+  const handleExtendTimer = () => {
+    const nextTarget = targetMinutes + 5;
+    setTargetMinutes(nextTarget);
+    toast({
+      title: 'Session Extended',
+      description: `Session target extended to ${nextTarget} min`,
+    });
+  };
+
+  // Filter appointment roster
   const filteredAppointments = appointments.filter((apt) => {
     const isDone = apt.status === 'Completed' || apt.status === 'Finalized' || apt.isCompleted;
     if (activeTab === 'upcoming') return !isDone;
@@ -369,31 +366,41 @@ export default function ProviderVisitsPage() {
 
   const sessionNumber = activeApt?.sessionNumber || activeApt?.sessionsDone || 1;
   const isFirstVisit = sessionNumber === 1;
+  const activeStageIndex = getStageIndex(visitStage);
+  const activePhone =
+    activeApt?.patientPhone || activeApt?.patient?.phone || activeApt?.patient?.mobileNo || '';
+  const activeBaseFee = Number(activeApt?.perSessionPrice ?? activeApt?.amount ?? 0) || 0;
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
+    <div className="space-y-6 max-w-6xl mx-auto">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
               <Navigation className="w-4 h-4" />
             </div>
-            <h1 className="text-2xl font-outfit font-extrabold tracking-tight">Active Visits & Clinical Forms</h1>
+            <h1 className="text-xl sm:text-2xl font-outfit font-extrabold tracking-tight truncate">
+              Active Visits & Clinical Forms
+            </h1>
           </div>
           <p className="text-xs text-muted-foreground mt-1">
-            Doorstep visit lifecycle with 34 backend assessment forms (First & Regular Visits), OTP check-in, and instant payouts.
+            Doorstep visit lifecycle with dynamic clinical assessments, OTP check-in, and settlement collection.
           </p>
         </div>
 
-        {/* Refresh & Count */}
         <div className="flex items-center gap-2 self-start sm:self-auto">
           <button
-            onClick={() => loadData(true)}
+            type="button"
+            onClick={() => void loadData(true)}
             disabled={refreshing}
-            className="flex items-center gap-2 text-xs font-outfit font-bold px-4 py-2 rounded-2xl border border-border/80 hover:bg-muted/50 transition-colors"
+            className="flex items-center gap-2 text-xs font-outfit font-bold px-4 py-2 min-h-[40px] rounded-2xl border border-border/80 hover:bg-muted/50 transition-colors"
           >
-            {refreshing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            {refreshing ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="w-3.5 h-3.5" />
+            )}
             <span>Refresh ({availableForms.length} Forms)</span>
           </button>
         </div>
@@ -403,45 +410,56 @@ export default function ProviderVisitsPage() {
         <div
           className={`p-3.5 rounded-2xl border text-xs font-outfit font-bold flex items-center gap-2 animate-in fade-in ${
             feedback.type === 'success'
-              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400'
+              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400'
               : feedback.type === 'error'
-              ? 'bg-destructive/10 border-destructive/30 text-destructive'
-              : 'bg-primary/10 border-primary/30 text-primary'
+                ? 'bg-destructive/10 border-destructive/30 text-destructive'
+                : 'bg-primary/10 border-primary/30 text-primary'
           }`}
         >
-          <CheckCircle2 className="w-4 h-4 shrink-0" />
+          {feedback.type === 'error' ? (
+            <AlertCircle className="w-4 h-4 shrink-0" />
+          ) : (
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+          )}
           <span>{feedback.text}</span>
         </div>
       )}
 
-      {/* If an appointment is active, render the 6-stage lifecycle engine */}
+      {/* Active Visit Lifecycle Workspace */}
       {activeApt ? (
         <div className="space-y-6 animate-in fade-in">
           {/* Active Visit Banner */}
-          <div className="bg-card border-2 border-primary/30 rounded-3xl p-6 shadow-lg space-y-4">
+          <div className="bg-card border-2 border-primary/30 rounded-3xl p-5 sm:p-6 shadow-md space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-border/60">
-              <div>
+              <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-[10px] font-outfit font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-primary/15 text-primary border border-primary/20">
-                    Active Session #{sessionNumber} ({isFirstVisit ? 'First Visit' : 'Regular Follow-up'})
+                    Active Session #{sessionNumber} (
+                    {isFirstVisit ? 'First Visit' : 'Regular Follow-up'})
                   </span>
                   <span className="text-xs font-mono text-muted-foreground font-bold">
-                    Apt ID: {activeApt._id?.slice(-8) || activeApt.id || 'APT-9412'}
+                    Apt ID: {String(activeApt._id || activeApt.id || '').slice(-8) || '—'}
                   </span>
                 </div>
-                <h2 className="text-lg sm:text-xl font-outfit font-extrabold text-foreground mt-1">
-                  {activeApt.patientName || activeApt.patient?.name || activeApt.patientDetails?.name || 'Patient'}
+                <h2 className="text-lg sm:text-xl font-outfit font-extrabold text-foreground mt-1 truncate">
+                  {activeApt.patientName ||
+                    activeApt.patient?.name ||
+                    activeApt.patientDetails?.name ||
+                    'Patient'}
                 </h2>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {activeApt.condition || activeApt.packageName || 'Comprehensive Physical Therapy Session'}
+                  {activeApt.condition ||
+                    activeApt.packageName ||
+                    'Comprehensive Physical Therapy Session'}
                 </p>
               </div>
 
               <Button
+                type="button"
                 variant="outline"
                 size="sm"
                 onClick={() => setActiveApt(null)}
-                className="rounded-2xl text-xs font-outfit font-bold self-start sm:self-auto"
+                className="rounded-2xl text-xs font-outfit font-bold self-start sm:self-auto shrink-0 min-h-[38px]"
               >
                 Switch Appointment
               </Button>
@@ -449,30 +467,63 @@ export default function ProviderVisitsPage() {
 
             {/* Patient Meta Details */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-              <div className="flex items-center gap-2 text-muted-foreground p-3 rounded-2xl bg-muted/30">
+              <div className="flex items-center gap-2 text-muted-foreground p-3 rounded-2xl bg-muted/30 min-w-0">
                 <MapPin className="w-4 h-4 text-primary shrink-0" />
-                <span className="truncate">{activeApt.address || activeApt.patientDetails?.address || activeApt.patient?.address || 'Address not on file'}</span>
+                <span className="truncate">
+                  {activeApt.address ||
+                    activeApt.patientDetails?.address ||
+                    activeApt.patient?.address ||
+                    'Address not on file'}
+                </span>
               </div>
               <div className="flex items-center gap-2 text-muted-foreground p-3 rounded-2xl bg-muted/30">
                 <Clock className="w-4 h-4 text-primary shrink-0" />
-                <span>{activeApt.scheduledTime || activeApt.timeSlot || 'Today • 10:30 AM'}</span>
+                <span className="truncate">
+                  {activeApt.scheduledTime ||
+                    activeApt.appointmentTime ||
+                    activeApt.timeSlot ||
+                    'Scheduled Slot'}
+                </span>
               </div>
               <div className="flex items-center gap-2 text-muted-foreground p-3 rounded-2xl bg-muted/30">
                 <Phone className="w-4 h-4 text-emerald-500 shrink-0" />
-                <a href={`tel:${activeApt.patientPhone || activeApt.patient?.phone || '9820144219'}`} className="font-mono font-bold text-foreground hover:underline">
-                  {activeApt.patientPhone || activeApt.patient?.phone || activeApt.patient?.mobileNo || '—'}
-                </a>
+                {activePhone ? (
+                  <a
+                    href={`tel:${activePhone}`}
+                    className="font-mono font-bold text-foreground hover:underline truncate"
+                  >
+                    {activePhone}
+                  </a>
+                ) : (
+                  <span className="text-muted-foreground">Phone not on file</span>
+                )}
               </div>
             </div>
 
-            {/* Visit Lifecycle Stepper Progress */}
-            <div className="space-y-2 pt-2">
-              <div className="flex items-center justify-between text-[11px] font-outfit font-extrabold uppercase tracking-wider text-muted-foreground">
-                <span className={visitStage === 'SCHEDULED' ? 'text-primary' : ''}>1. Start Travel</span>
-                <span className={visitStage === 'TRAVEL_STARTED' || visitStage === 'ARRIVED' ? 'text-primary' : ''}>2. Arrive</span>
-                <span className={visitStage === 'OTP_CHECKIN' ? 'text-primary' : ''}>3. OTP Gate</span>
-                <span className={visitStage === 'IN_SESSION' ? 'text-primary' : ''}>4. Clinical Form</span>
-                <span className={visitStage === 'FINALIZE_PAYMENT' ? 'text-primary' : ''}>5. Settlement</span>
+            {/* Responsive Visit Lifecycle Stepper (scrollable pill row on 360px phones) */}
+            <div className="space-y-2.5 pt-1">
+              <div className="-mx-1 px-1 overflow-x-auto">
+                <div className="flex items-center justify-between gap-2 min-w-max sm:min-w-0">
+                  {STEPPER_ITEMS.map((step, idx) => {
+                    const isCurrent = idx === activeStageIndex && visitStage !== 'COMPLETED';
+                    const isDone = idx < activeStageIndex || visitStage === 'COMPLETED';
+                    return (
+                      <div
+                        key={step.id}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-outfit font-extrabold uppercase tracking-wide whitespace-nowrap border transition-colors ${
+                          isCurrent
+                            ? 'bg-primary text-white border-primary shadow-sm'
+                            : isDone
+                              ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30'
+                              : 'bg-muted/40 text-muted-foreground border-border/60'
+                        }`}
+                      >
+                        <span>{step.id}.</span>
+                        <span>{step.label}</span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
               <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
                 <div
@@ -482,14 +533,14 @@ export default function ProviderVisitsPage() {
                       visitStage === 'SCHEDULED'
                         ? '15%'
                         : visitStage === 'TRAVEL_STARTED'
-                        ? '35%'
-                        : visitStage === 'ARRIVED' || visitStage === 'OTP_CHECKIN'
-                        ? '55%'
-                        : visitStage === 'IN_SESSION'
-                        ? '75%'
-                        : visitStage === 'FINALIZE_PAYMENT'
-                        ? '90%'
-                        : '100%',
+                          ? '35%'
+                          : visitStage === 'ARRIVED' || visitStage === 'OTP_CHECKIN'
+                            ? '55%'
+                            : visitStage === 'IN_SESSION'
+                              ? '75%'
+                              : visitStage === 'FINALIZE_PAYMENT'
+                                ? '90%'
+                                : '100%',
                   }}
                 />
               </div>
@@ -503,17 +554,20 @@ export default function ProviderVisitsPage() {
                 <Navigation className="w-8 h-8" />
               </div>
               <div>
-                <h3 className="text-lg font-outfit font-extrabold text-foreground">Ready to Start Transit?</h3>
+                <h3 className="text-lg font-outfit font-extrabold text-foreground">
+                  Ready to Start Transit?
+                </h3>
                 <p className="text-xs text-muted-foreground max-w-md mx-auto mt-1">
-                  Starting transit will broadcast your live ETA to the patient and update your territory dispatcher.
+                  Starting transit updates your live session stage so you can confirm arrival at the patient doorstep.
                 </p>
               </div>
               <Button
+                type="button"
                 onClick={handleStartTravel}
                 disabled={isProcessing}
                 className="h-12 px-8 rounded-2xl bg-primary hover:bg-primary/95 text-white font-outfit font-extrabold text-xs shadow-xl shadow-primary/20"
               >
-                {isProcessing ? 'Starting GPS Transit...' : 'Start Travel to Patient Doorstep ➔'}
+                {isProcessing ? 'Starting Transit...' : 'Start Travel to Patient Doorstep →'}
               </Button>
             </div>
           )}
@@ -525,17 +579,20 @@ export default function ProviderVisitsPage() {
                 <MapPin className="w-8 h-8" />
               </div>
               <div>
-                <h3 className="text-lg font-outfit font-extrabold text-foreground">En Route to Patient</h3>
+                <h3 className="text-lg font-outfit font-extrabold text-foreground">
+                  En Route to Patient
+                </h3>
                 <p className="text-xs text-muted-foreground max-w-md mx-auto mt-1">
-                  When you reach the patient residence, tap below to prompt for arrival verification.
+                  When you reach the patient residence, tap below to validate your arrival location.
                 </p>
               </div>
               <Button
+                type="button"
                 onClick={handleMarkArrived}
                 disabled={isProcessing}
                 className="h-12 px-8 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-outfit font-extrabold text-xs shadow-xl shadow-emerald-600/20"
               >
-                {isProcessing ? 'Updating...' : "I've Arrived at Doorstep ✓"}
+                {isProcessing ? 'Validating Arrival...' : "I've Arrived at Doorstep ✓"}
               </Button>
             </div>
           )}
@@ -547,7 +604,9 @@ export default function ProviderVisitsPage() {
                 <div className="w-14 h-14 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mx-auto mb-2">
                   <ShieldCheck className="w-7 h-7" />
                 </div>
-                <h3 className="text-lg font-outfit font-extrabold text-foreground">Enter 4-Digit Patient OTP</h3>
+                <h3 className="text-lg font-outfit font-extrabold text-foreground">
+                  Enter 4-Digit Patient OTP
+                </h3>
                 <p className="text-xs text-muted-foreground">
                   Ask the patient for the check-in OTP displayed on their Aries app or SMS.
                 </p>
@@ -556,6 +615,7 @@ export default function ProviderVisitsPage() {
               <div className="space-y-2">
                 <Input
                   type="text"
+                  inputMode="numeric"
                   maxLength={6}
                   value={otpInput}
                   onChange={(e) => setOtpInput(e.target.value.replace(/\D/g, ''))}
@@ -568,88 +628,122 @@ export default function ProviderVisitsPage() {
               </div>
 
               <Button
+                type="button"
                 onClick={handleVerifyOtp}
                 disabled={isProcessing || otpInput.length < 4}
                 className="w-full h-12 rounded-2xl bg-primary hover:bg-primary/95 text-white font-outfit font-extrabold text-xs shadow-xl shadow-primary/20"
               >
-                {isProcessing ? 'Verifying OTP...' : 'Verify OTP & Start Clinical Session ➔'}
+                {isProcessing ? 'Verifying OTP...' : 'Verify OTP & Start Clinical Session →'}
               </Button>
             </div>
           )}
 
-          {/* ── STAGE 4: IN_SESSION — 34 DYNAMIC FORMS RENDERER ── */}
+          {/* ── STAGE 4: IN_SESSION — DYNAMIC CLINICAL FORMS & STOPWATCH ── */}
           {visitStage === 'IN_SESSION' && (
             <div className="space-y-6">
               {/* Live Treatment Stopwatch HUD Banner */}
               <div className="bg-gradient-to-r from-primary/15 via-accent/15 to-emerald-500/15 border-2 border-primary/40 rounded-3xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-md">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-2xl bg-primary text-white flex items-center justify-center font-mono text-base font-black shadow-inner animate-pulse">
+                <div className="flex items-center gap-3.5 min-w-0">
+                  <div
+                    className={`w-12 h-12 rounded-2xl text-white flex items-center justify-center font-mono text-base font-black shadow-inner shrink-0 ${
+                      isTimerRunning ? 'bg-primary animate-pulse' : 'bg-amber-500'
+                    }`}
+                  >
                     <Clock className="w-6 h-6" />
                   </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-extrabold uppercase px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
-                        <span>TREATMENT TIMER RUNNING</span>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {isTimerRunning ? (
+                        <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+                          <span>TREATMENT TIMER RUNNING</span>
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-500/30 flex items-center gap-1.5">
+                          <Pause className="w-3 h-3" />
+                          <span>TIMER PAUSED</span>
+                        </span>
+                      )}
+                      <span className="text-xs text-muted-foreground font-medium">
+                        {targetMinutes}-Min Target Session
                       </span>
-                      <span className="text-xs text-muted-foreground font-medium">Standard 45-Min Doorstep Session</span>
                     </div>
-                    <p className="text-sm font-outfit font-extrabold text-foreground mt-0.5">
-                      Elapsed Time: <span className="font-mono text-primary font-black text-base">{activeSessionTime || '18:42'}</span>
+                    <p className="text-sm font-outfit font-extrabold text-foreground mt-1">
+                      Elapsed:{' '}
+                      <span className="font-mono text-primary font-black text-base">
+                        {activeSessionTime} / {targetMinutes}:00
+                      </span>
                     </p>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 self-start sm:self-auto">
+                <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
-                    className="rounded-xl border-primary/30 text-primary text-xs font-bold"
-                    onClick={() => alert('Timer paused.')}
+                    className="rounded-xl border-primary/30 text-primary text-xs font-bold min-h-[38px] flex items-center gap-1.5"
+                    onClick={handleToggleTimer}
                   >
-                    Pause Timer
+                    {isTimerRunning ? (
+                      <>
+                        <Pause className="w-3.5 h-3.5" />
+                        <span>Pause Timer</span>
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-3.5 h-3.5" />
+                        <span>Resume Timer</span>
+                      </>
+                    )}
                   </Button>
                   <Button
                     type="button"
                     size="sm"
-                    className="rounded-xl bg-primary text-white text-xs font-bold"
-                    onClick={() => alert('+5 minutes added to clinical session.')}
+                    className="rounded-xl bg-primary text-white text-xs font-bold min-h-[38px] flex items-center gap-1"
+                    onClick={handleExtendTimer}
                   >
-                    +5 Min
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>5 Min</span>
                   </Button>
                 </div>
               </div>
 
-              {/* Form Mode Selector: 34 Backend Forms vs Traditional SOAP */}
-              <div className="flex items-center justify-between bg-card border border-border/80 p-4 rounded-3xl">
-                <div className="flex items-center gap-2">
-                  <Layers className="w-5 h-5 text-primary" />
-                  <div>
+              {/* Form Mode Selector: Dynamic Clinical Forms vs Standard SOAP */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-card border border-border/80 p-4 rounded-3xl">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <Layers className="w-5 h-5 text-primary shrink-0" />
+                  <div className="min-w-0">
                     <h4 className="text-xs font-outfit font-extrabold text-foreground">
                       Clinical Assessment Method
                     </h4>
-                    <p className="text-[11px] text-muted-foreground">
+                    <p className="text-[11px] text-muted-foreground truncate">
                       {formMode === 'dynamic'
-                        ? `Using dynamic form: ${selectedAssessmentForm?.title || 'Selected Form'}`
-                        : 'Using standardized SOAP assessment template'}
+                        ? `Active form: ${selectedAssessmentForm?.title || 'Select a clinical form'}`
+                        : 'Standardized SOAP clinical note template'}
                     </p>
                   </div>
                 </div>
 
-                <div className="flex gap-1 p-1 bg-muted/40 rounded-2xl border border-border/60">
+                <div className="flex gap-1 p-1 bg-muted/40 rounded-2xl border border-border/60 self-start sm:self-auto shrink-0">
                   <button
+                    type="button"
                     onClick={() => setFormMode('dynamic')}
                     className={`px-3 py-1.5 rounded-xl text-xs font-outfit font-bold transition-all ${
-                      formMode === 'dynamic' ? 'bg-primary text-white shadow-sm' : 'text-muted-foreground'
+                      formMode === 'dynamic'
+                        ? 'bg-primary text-white shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
                     }`}
                   >
-                    34 Backend Forms
+                    Clinical Forms
                   </button>
                   <button
+                    type="button"
                     onClick={() => setFormMode('soap')}
                     className={`px-3 py-1.5 rounded-xl text-xs font-outfit font-bold transition-all ${
-                      formMode === 'soap' ? 'bg-primary text-white shadow-sm' : 'text-muted-foreground'
+                      formMode === 'soap'
+                        ? 'bg-primary text-white shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
                     }`}
                   >
                     Standard SOAP
@@ -658,7 +752,6 @@ export default function ProviderVisitsPage() {
               </div>
 
               {formMode === 'dynamic' ? (
-                /* Dynamic Form Renderer with 34 Backend Forms */
                 <DynamicFormRenderer
                   appointmentId={activeApt._id || activeApt.id}
                   patientId={activeApt.patientId || activeApt.patient?._id}
@@ -670,7 +763,6 @@ export default function ProviderVisitsPage() {
                   onCancel={() => setVisitStage('SCHEDULED')}
                 />
               ) : (
-                /* Standard SOAP Note Form */
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
@@ -690,7 +782,9 @@ export default function ProviderVisitsPage() {
                   {/* VAS Pain Slider */}
                   <div className="p-4 bg-muted/30 rounded-2xl border border-border/60 space-y-3">
                     <div className="flex items-center justify-between">
-                      <Label className="text-xs font-outfit font-bold">Visual Analog Pain Scale (VAS)</Label>
+                      <Label className="text-xs font-outfit font-bold">
+                        Visual Analog Pain Scale (VAS)
+                      </Label>
                       <span className="text-base font-outfit font-black text-primary px-3 py-0.5 bg-primary/10 rounded-xl">
                         {soap.vasPainScore} / 10
                       </span>
@@ -700,7 +794,9 @@ export default function ProviderVisitsPage() {
                       min={0}
                       max={10}
                       value={soap.vasPainScore}
-                      onChange={(e) => setSoap({ ...soap, vasPainScore: parseInt(e.target.value) })}
+                      onChange={(e) =>
+                        setSoap({ ...soap, vasPainScore: parseInt(e.target.value, 10) })
+                      }
                       className="w-full accent-primary h-2 bg-muted rounded-lg cursor-pointer"
                     />
                   </div>
@@ -711,6 +807,7 @@ export default function ProviderVisitsPage() {
                       <Input
                         value={soap.chiefComplaint}
                         onChange={(e) => setSoap({ ...soap, chiefComplaint: e.target.value })}
+                        placeholder="Primary pain area or functional limitation"
                         className="h-10 rounded-2xl text-xs"
                       />
                     </div>
@@ -719,6 +816,7 @@ export default function ProviderVisitsPage() {
                       <Input
                         value={soap.clinicalDiagnosis}
                         onChange={(e) => setSoap({ ...soap, clinicalDiagnosis: e.target.value })}
+                        placeholder="Working physiotherapy diagnosis"
                         className="h-10 rounded-2xl text-xs"
                       />
                     </div>
@@ -729,8 +827,10 @@ export default function ProviderVisitsPage() {
                     <textarea
                       rows={3}
                       value={soap.homeExercisePrescription}
-                      onChange={(e) => setSoap({ ...soap, homeExercisePrescription: e.target.value })}
-                      className="w-full text-xs p-3 rounded-2xl border border-border/80 bg-background resize-none"
+                      onChange={(e) =>
+                        setSoap({ ...soap, homeExercisePrescription: e.target.value })
+                      }
+                      className="w-full text-xs p-3 rounded-2xl border border-border/80 bg-background resize-y focus:outline-none focus:ring-2 focus:ring-primary/30"
                       placeholder="List exercises, reps, frequency..."
                     />
                   </div>
@@ -739,174 +839,88 @@ export default function ProviderVisitsPage() {
                     type="submit"
                     className="w-full h-12 rounded-2xl bg-primary hover:bg-primary/95 text-white font-outfit font-extrabold text-xs shadow-xl shadow-primary/20"
                   >
-                    Save Assessment & Proceed to Payment Settlement ➔
+                    Save Assessment & Proceed to Payment Settlement →
                   </Button>
                 </form>
               )}
             </div>
           )}
 
-          {/* ── STAGE 5: FINALIZE PAYMENT & SETTLEMENT ── */}
+          {/* ── STAGE 5: POST-VISIT SETTLEMENT ── */}
           {visitStage === 'FINALIZE_PAYMENT' && (
-            <div className="bg-card border border-border/80 rounded-3xl p-6 sm:p-8 max-w-lg mx-auto space-y-6 shadow-sm">
-              <div className="text-center space-y-1">
-                <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto mb-2">
-                  <Banknote className="w-7 h-7" />
-                </div>
-                <h3 className="text-lg font-outfit font-extrabold text-foreground">Session Payment Settlement</h3>
-                <p className="text-xs text-muted-foreground">
-                  Confirm fee breakdown, optional add-ons, and payment collection mode.
-                </p>
-              </div>
-
-              {/* Fee Breakdown */}
-              <div className="p-4 bg-muted/40 rounded-2xl border border-border/60 space-y-2.5 text-xs">
-                <div className="flex justify-between text-muted-foreground">
-                  <span>Standard Doorstep Session Fee:</span>
-                  <span className="font-mono font-bold text-foreground">₹{Number(activeApt.perSessionPrice ?? activeApt.amount ?? 0) || 0}</span>
-                </div>
-
-                {selectedAddOns.length > 0 && (
-                  <div className="space-y-1 pt-1 border-t border-border/60">
-                    {selectedAddOns.map((name) => (
-                      <div key={name} className="flex justify-between text-xs text-primary font-bold">
-                        <span>+ {name}:</span>
-                        <span className="font-mono">₹{ADDON_PRICING[name]}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <div className="flex justify-between text-sm font-outfit font-black pt-2 border-t border-border/80 text-foreground">
-                  <span>Total Amount Payable:</span>
-                  <span className="font-mono text-primary text-base">
-                    ₹{(Number(activeApt.perSessionPrice ?? activeApt.amount ?? 0) || 0) +
-                      selectedAddOns.reduce((sum, name) => sum + (ADDON_PRICING[name] || 0), 0)}
-                  </span>
-                </div>
-              </div>
-
-              {/* Premium Add-ons Selector */}
-              <div className="space-y-2">
-                <Label className="text-xs font-outfit font-bold">Session Add-On Modalities</Label>
-                <div className="grid grid-cols-2 gap-2">
-                  {Object.entries(ADDON_PRICING).map(([name, price]) => {
-                    const isSelected = selectedAddOns.includes(name);
-                    return (
-                      <button
-                        key={name}
-                        type="button"
-                        onClick={() =>
-                          setSelectedAddOns(
-                            isSelected ? selectedAddOns.filter((x) => x !== name) : [...selectedAddOns, name]
-                          )
-                        }
-                        className={`p-3 rounded-2xl border text-left text-xs font-outfit font-bold transition-all flex items-center justify-between ${
-                          isSelected
-                            ? 'bg-primary/10 border-primary text-primary'
-                            : 'bg-muted/30 border-border/60 text-muted-foreground hover:bg-muted/60'
-                        }`}
-                      >
-                        <span>{name}</span>
-                        <span className="font-mono font-extrabold">+₹{price}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Payment Method Choice */}
-              <div className="space-y-2">
-                <Label className="text-xs font-outfit font-bold">Payment Collection Mode</Label>
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { id: 'cash', label: 'Cash in Hand', icon: Banknote },
-                    { id: 'upi_qr', label: 'Dynamic UPI QR', icon: QrCode },
-                    { id: 'online', label: 'Prepaid / App', icon: CreditCard },
-                  ].map((m) => {
-                    const Icon = m.icon;
-                    const isSelected = paymentMethod === m.id;
-                    return (
-                      <button
-                        key={m.id}
-                        type="button"
-                        onClick={() => setPaymentMethod(m.id as any)}
-                        className={`p-3 rounded-2xl border text-center transition-all flex flex-col items-center gap-1.5 ${
-                          isSelected
-                            ? 'bg-primary text-white border-primary shadow-sm'
-                            : 'bg-muted/30 border-border/60 text-muted-foreground'
-                        }`}
-                      >
-                        <Icon className="w-5 h-5" />
-                        <span className="text-[11px] font-outfit font-bold">{m.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {paymentMethod === 'upi_qr' ? (
-                <div className="rounded-2xl border border-border p-3 text-center space-y-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="rounded-2xl"
-                    onClick={async () => {
-                      const id = activeApt._id || activeApt.id;
-                      const sessionFee = Number(activeApt.perSessionPrice ?? activeApt.amount ?? 0) || 0;
-                      const addOnTotal = selectedAddOns.reduce((sum, name) => sum + (ADDON_PRICING[name] || 0), 0);
-                      try {
-                        const qr = await providerApi.generatePaymentQr({ appointmentId: id, amount: sessionFee + addOnTotal });
-                        setQrImage(qr?.qrImage || qr?.qr || qr?.image || null);
-                        setQrOrderId(qr?.orderId || qr?.order_id || null);
-                      } catch (err: any) {
-                        setFeedback({ type: 'error', text: err?.message || 'Could not generate UPI QR.' });
-                      }
-                    }}
-                  >
-                    Generate UPI QR
-                  </Button>
-                  {qrImage ? <img src={qrImage} alt="UPI QR" className="w-40 h-40 mx-auto rounded-xl bg-white p-2" /> : null}
-                  {qrOrderId ? <p className="text-[10px] font-mono text-muted-foreground">Order {qrOrderId}</p> : null}
-                </div>
-              ) : null}
-
-              {paymentMethod === 'cash' ? (
-                <label className="block text-xs font-bold">
-                  Payment proof (optional photo)
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="mt-2 block w-full text-xs"
-                    onChange={(e) => setProofFile(e.target.files?.[0] || null)}
-                  />
-                </label>
-              ) : null}
-
-              <Button
-                onClick={handleFinalizeVisit}
-                disabled={isProcessing}
-                className="w-full h-12 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-outfit font-extrabold text-xs shadow-xl shadow-emerald-600/20"
-              >
-                {isProcessing ? 'Finalizing...' : 'Finalize Visit & Credit Wallet ✓'}
-              </Button>
-            </div>
+            <PostVisitSettlement
+              appointment={activeApt}
+              baseFee={activeBaseFee}
+              userCity={user?.city || user?.areaOfServiceInfo?.city}
+              soapNotes={soap}
+              onBack={() => setVisitStage('IN_SESSION')}
+              onCompleted={(summary) => {
+                setCompletionSummary(summary);
+                setVisitStage('COMPLETED');
+                setFeedback({
+                  type: 'success',
+                  text: `Visit finalized for ₹${summary.totalAmount.toLocaleString('en-IN')} (${summary.paymentStatus}).`,
+                });
+                void loadData(true);
+              }}
+            />
           )}
 
           {/* ── STAGE 6: COMPLETED SUCCESS ── */}
           {visitStage === 'COMPLETED' && (
-            <div className="bg-card border-2 border-emerald-500/40 rounded-3xl p-8 text-center space-y-4 shadow-xl max-w-md mx-auto">
+            <div className="bg-card border-2 border-emerald-500/40 rounded-3xl p-6 sm:p-8 text-center space-y-5 shadow-xl max-w-md mx-auto">
               <div className="w-16 h-16 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto">
                 <CheckCircle2 className="w-10 h-10" />
               </div>
-              <h3 className="text-xl font-outfit font-black text-foreground">Visit Completed Successfully!</h3>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                Clinical assessment note submitted. Patient visit counter incremented and earnings credited to your wallet ledger.
-              </p>
+              <div className="space-y-1.5">
+                <h3 className="text-xl font-outfit font-black text-foreground">
+                  Visit Completed Successfully
+                </h3>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Clinical assessment submitted and settlement recorded with AriesXpert operations.
+                </p>
+              </div>
+
+              {completionSummary && (
+                <div className="p-4 rounded-2xl bg-muted/40 border border-border/70 text-xs space-y-2 text-left">
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Total Amount</span>
+                    <span className="font-mono font-black text-foreground">
+                      ₹{completionSummary.totalAmount.toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Payment Method</span>
+                    <span className="font-outfit font-bold uppercase text-foreground">
+                      {completionSummary.paymentMethod.replace('_', ' ')}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-muted-foreground">Settlement Status</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-outfit font-extrabold bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30">
+                      {completionSummary.paymentStatus}
+                    </span>
+                  </div>
+                  {completionSummary.paymentLinkUrl && (
+                    <a
+                      href={completionSummary.paymentLinkUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-2 inline-flex items-center gap-1.5 text-primary font-bold hover:underline"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>Open Payment Link</span>
+                    </a>
+                  )}
+                </div>
+              )}
+
               <Button
+                type="button"
                 onClick={() => {
                   setActiveApt(null);
                   setVisitStage('SCHEDULED');
+                  setCompletionSummary(null);
                 }}
                 className="w-full h-11 rounded-2xl bg-primary hover:bg-primary/95 text-white font-outfit font-extrabold text-xs"
               >
@@ -918,23 +932,40 @@ export default function ProviderVisitsPage() {
       ) : (
         /* Appointment Roster List */
         <div className="space-y-4">
-          {/* Tabs: Upcoming vs Completed */}
-          <div className="flex gap-1 p-1 bg-muted/40 border border-border/80 rounded-2xl w-fit">
+          <div className="flex gap-1 p-1 bg-muted/40 border border-border/80 rounded-2xl w-fit max-w-full overflow-x-auto">
             <button
+              type="button"
               onClick={() => setActiveTab('upcoming')}
-              className={`px-4 py-2 rounded-xl text-xs font-outfit font-bold transition-all ${
-                activeTab === 'upcoming' ? 'bg-primary text-white shadow-sm' : 'text-muted-foreground hover:text-foreground'
+              className={`px-4 py-2 rounded-xl text-xs font-outfit font-bold transition-all whitespace-nowrap ${
+                activeTab === 'upcoming'
+                  ? 'bg-primary text-white shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              Upcoming Schedule ({appointments.filter((a) => !a.isCompleted && a.status !== 'Completed').length})
+              Upcoming Schedule (
+              {
+                appointments.filter(
+                  (a) => !a.isCompleted && a.status !== 'Completed' && a.status !== 'Finalized'
+                ).length
+              }
+              )
             </button>
             <button
+              type="button"
               onClick={() => setActiveTab('completed')}
-              className={`px-4 py-2 rounded-xl text-xs font-outfit font-bold transition-all ${
-                activeTab === 'completed' ? 'bg-primary text-white shadow-sm' : 'text-muted-foreground hover:text-foreground'
+              className={`px-4 py-2 rounded-xl text-xs font-outfit font-bold transition-all whitespace-nowrap ${
+                activeTab === 'completed'
+                  ? 'bg-primary text-white shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              Completed History ({appointments.filter((a) => a.isCompleted || a.status === 'Completed').length})
+              Completed History (
+              {
+                appointments.filter(
+                  (a) => a.isCompleted || a.status === 'Completed' || a.status === 'Finalized'
+                ).length
+              }
+              )
             </button>
           </div>
 
@@ -946,16 +977,24 @@ export default function ProviderVisitsPage() {
             <div className="p-12 rounded-3xl border border-dashed border-border/80 text-center text-muted-foreground">
               <Calendar className="w-10 h-10 mx-auto mb-3 opacity-40" />
               <p className="text-sm font-bold">No appointments found in this view</p>
-              <p className="text-xs mt-1">Accept incoming broadcast leads to schedule new home visits.</p>
+              <p className="text-xs mt-1">
+                Accept incoming broadcast leads to schedule new home visits.
+              </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {filteredAppointments.map((apt) => {
                 const id = apt._id || apt.id;
-                const name = apt.patientName || apt.patient?.name || apt.patientDetails?.name || 'Patient';
-                const time = apt.scheduledTime || apt.timeSlot || 'Today • 10:30 AM';
-                const address = apt.address || apt.patientDetails?.address || apt.patient?.address || 'Address not on file';
-                const condition = apt.condition || apt.packageName || 'Orthopedic Therapy';
+                const name =
+                  apt.patientName || apt.patient?.name || apt.patientDetails?.name || 'Patient';
+                const time =
+                  apt.scheduledTime || apt.appointmentTime || apt.timeSlot || 'Scheduled Slot';
+                const address =
+                  apt.address ||
+                  apt.patientDetails?.address ||
+                  apt.patient?.address ||
+                  'Address not on file';
+                const condition = apt.condition || apt.packageName || 'Physiotherapy Session';
                 const sessNum = apt.sessionNumber || apt.sessionsDone || 1;
                 const isFirst = sessNum === 1 || !apt.sessionsDone;
 
@@ -964,23 +1003,25 @@ export default function ProviderVisitsPage() {
                     key={id}
                     className="bg-card border border-border/80 rounded-3xl p-5 sm:p-6 shadow-sm hover:shadow-md transition-shadow space-y-3 flex flex-col justify-between"
                   >
-                    <div className="space-y-2">
+                    <div className="space-y-2.5">
                       <div className="flex items-start justify-between gap-2">
-                        <div>
+                        <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-[10px] font-outfit font-extrabold uppercase px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
                               Session #{sessNum} ({isFirst ? 'First Visit' : 'Regular Visit'})
                             </span>
                             <span className="text-[10px] font-mono text-muted-foreground font-bold">
-                              {apt.scheduledDate || 'Today'}
+                              {apt.scheduledDate || apt.appointmentDate || 'Scheduled'}
                             </span>
                           </div>
-                          <h3 className="text-base font-outfit font-extrabold text-foreground mt-1">{name}</h3>
+                          <h3 className="text-base font-outfit font-extrabold text-foreground mt-1 truncate">
+                            {name}
+                          </h3>
                         </div>
 
-                        <div className="text-right">
+                        <div className="text-right shrink-0">
                           <span className="font-mono font-black text-sm text-foreground">
-                            ₹{Number(apt.perSessionPrice ?? apt.amount ?? 0) || 0}
+                            ₹{(Number(apt.perSessionPrice ?? apt.amount ?? 0) || 0).toLocaleString('en-IN')}
                           </span>
                         </div>
                       </div>
@@ -988,11 +1029,11 @@ export default function ProviderVisitsPage() {
                       <div className="space-y-1 text-xs text-muted-foreground">
                         <div className="flex items-center gap-1.5">
                           <Stethoscope className="w-3.5 h-3.5 text-primary shrink-0" />
-                          <span className="font-medium text-foreground">{condition}</span>
+                          <span className="font-medium text-foreground truncate">{condition}</span>
                         </div>
                         <div className="flex items-center gap-1.5">
                           <Clock className="w-3.5 h-3.5 shrink-0" />
-                          <span>{time}</span>
+                          <span className="truncate">{time}</span>
                         </div>
                         <div className="flex items-center gap-1.5">
                           <MapPin className="w-3.5 h-3.5 shrink-0" />
@@ -1003,11 +1044,12 @@ export default function ProviderVisitsPage() {
 
                     <div className="pt-2 border-t border-border/60">
                       <Button
-                        onClick={() => handleSelectAppointment(apt)}
+                        type="button"
+                        onClick={() => void handleSelectAppointment(apt)}
                         className="w-full h-10 rounded-2xl bg-primary hover:bg-primary/95 text-white font-outfit font-extrabold text-xs shadow-md shadow-primary/20 flex items-center justify-center gap-2"
                       >
                         <Navigation className="w-3.5 h-3.5" />
-                        <span>Start Visit & Clinical Assessment ➔</span>
+                        <span>Start Visit & Clinical Assessment →</span>
                       </Button>
                     </div>
                   </div>
@@ -1018,5 +1060,19 @@ export default function ProviderVisitsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function ProviderVisitsPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="max-w-6xl mx-auto py-16 flex items-center justify-center">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      }
+    >
+      <VisitsWorkspace />
+    </Suspense>
   );
 }
