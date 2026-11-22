@@ -4,29 +4,25 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useProviderAuth } from '@/services/provider-auth-context';
 import { providerApi } from '@/services/provider-api';
-import { useRealtimeEvent, useProviderRealtime } from '@/services/provider-realtime';
+import { useRealtimeEvent } from '@/services/provider-realtime';
+import { useToast } from '@/hooks/use-toast';
 import {
   TrendingUp,
   CalendarCheck,
   Radio,
   Wallet,
   Star,
-  MapPin,
-  Clock,
   ChevronRight,
   Navigation,
   CheckCircle2,
   Bot,
-  Stethoscope,
-  Activity,
   Users,
   Target,
   Zap,
   RefreshCw,
   AlertTriangle,
-  Phone,
   Loader2,
-  ArrowRight,
+  Gift,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -57,6 +53,7 @@ function formatCurrency(val?: number) {
 
 export default function ProviderDashboardPage() {
   const { user, dutyStatus, toggleDutyStatus, refreshProfile } = useProviderAuth();
+  const { toast } = useToast();
   const [stats, setStats] = useState<DashboardStats>({});
   const [newLeadCount, setNewLeadCount] = useState(0);
   const [todayAppointments, setTodayAppointments] = useState<any[]>([]);
@@ -198,6 +195,14 @@ export default function ProviderDashboardPage() {
       color: 'text-indigo-500 bg-indigo-500/10',
       href: '/app/dashboard/targets',
     },
+    {
+      label: 'Bonuses & Campaigns',
+      value: 'Explore',
+      sub: 'Incentives & tiers',
+      icon: <Gift className="w-4 h-4" />,
+      color: 'text-pink-500 bg-pink-500/10',
+      href: '/app/dashboard/bonuses',
+    },
   ];
 
   const [showTargetModal, setShowTargetModal] = useState(false);
@@ -219,6 +224,11 @@ export default function ProviderDashboardPage() {
     const val = parseInt(customTargetInput, 10);
     if (!val || val <= 0) {
       setTargetError('Enter a target amount greater than zero.');
+      toast({
+        variant: 'destructive',
+        title: 'Invalid target amount',
+        description: 'Please enter a monthly target greater than ₹0.',
+      });
       return;
     }
     setIsSavingTarget(true);
@@ -226,22 +236,41 @@ export default function ProviderDashboardPage() {
     try {
       const res = await providerApi.setMonthlyTarget(val);
       if (!res.success) {
-        setTargetError(res.message || 'Could not save your monthly target.');
+        const msg = res.message || 'Could not save your monthly target.';
+        setTargetError(msg);
+        toast({
+          variant: 'destructive',
+          title: 'Could not save target',
+          description: msg,
+        });
         return;
       }
       await Promise.all([refreshProfile(), loadDashboard()]);
       setShowTargetModal(false);
       setSavedTargetFeedback(true);
+      toast({
+        title: 'Monthly target updated',
+        description: `Your monthly goal is now ₹${val.toLocaleString('en-IN')}.`,
+      });
       setTimeout(() => setSavedTargetFeedback(false), 3000);
     } catch (err: any) {
-      setTargetError(err?.message || 'Could not save your monthly target.');
+      const msg = err?.message || 'Could not save your monthly target.';
+      setTargetError(msg);
+      toast({
+        variant: 'destructive',
+        title: 'Could not save target',
+        description: msg,
+      });
     } finally {
       setIsSavingTarget(false);
     }
   };
 
+  const nextAptId = nextAppointment ? String(nextAppointment._id || nextAppointment.id || '') : '';
+  const startVisitHref = nextAptId ? `/app/visits?apt=${encodeURIComponent(nextAptId)}` : '/app/visits';
+
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
+    <div className="space-y-6 max-w-[1600px] mx-auto">
       {loadError && (
         <div className="p-4 rounded-2xl text-xs font-bold flex items-center gap-2 bg-red-500/10 text-red-600 border border-red-500/30">
           <AlertTriangle className="w-4 h-4 shrink-0" />
@@ -294,15 +323,16 @@ export default function ProviderDashboardPage() {
               {todayAppointments.length > 0 && ` • ${todayAppointments.length} visits today`}
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <button
               onClick={handleRefresh}
               disabled={refreshing}
+              aria-label="Refresh dashboard"
               className="w-10 h-10 rounded-2xl border border-border/80 bg-card flex items-center justify-center hover:bg-muted transition-colors"
             >
               {refreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
             </button>
-            <Link href="/app/visits" prefetch={false}>
+            <Link href={startVisitHref} prefetch={false}>
               <Button className="h-11 px-5 rounded-2xl bg-primary hover:bg-primary/95 text-white font-extrabold shadow-lg shadow-primary/20 flex items-center gap-2">
                 <Navigation className="w-4 h-4" />
                 <span>Start Visit</span>
@@ -352,38 +382,43 @@ export default function ProviderDashboardPage() {
             style={{ width: `${progress * 100}%` }}
           />
         </div>
-        <p className="text-[11px] text-muted-foreground pt-1 flex items-center justify-between">
+        <div className="text-[11px] text-muted-foreground pt-1 flex flex-wrap items-center justify-between gap-2">
           <span className="flex items-center gap-1">
             <span>💡</span>
             <span>Target Pace: <strong>{dailyVisitsRequired} visits/day</strong> needed to achieve monthly goal</span>
           </span>
-          <button
-            onClick={() => {
-              setCustomTargetInput(String(monthlyTarget));
-              setShowTargetModal(true);
-            }}
-            className="text-xs font-bold text-primary hover:underline"
-          >
-            Adjust Target ➔
-          </button>
-        </p>
+          <div className="flex items-center gap-3">
+            <Link href="/app/dashboard/targets" prefetch={false} className="text-xs font-bold text-foreground hover:text-primary transition-colors">
+              Full Target Setup
+            </Link>
+            <button
+              onClick={() => {
+                setCustomTargetInput(String(monthlyTarget));
+                setShowTargetModal(true);
+              }}
+              className="text-xs font-bold text-primary hover:underline"
+            >
+              Quick Edit ➔
+            </button>
+          </div>
+        </div>
       </div>
 
-      {/* KPI Grid — matches _buildKPIGrid in dashboard_screen.dart (8 KPI cards) */}
+      {/* KPI Grid — all 6 KPI drill-downs 1 click away */}
       <div>
-        <div className="flex items-center justify-between mb-3 px-1">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3 px-1">
           <h2 className="text-sm font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-            <span>📊 Performance & Clinical Telemetry</span>
+            <span>Performance &amp; Clinical Telemetry</span>
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
           </h2>
-          <span className="text-[11px] text-muted-foreground font-mono">Live Sync • 2026 Governance</span>
+          <span className="text-[11px] text-muted-foreground font-mono">Live Clinical Sync</span>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-          {kpiCards.map((kpi) => {
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-3 sm:gap-4">
+          {kpiCards.map((kpi, idx) => {
+            const isLastOddMobile = kpiCards.length % 2 === 1 && idx === kpiCards.length - 1;
             const card = (
               <div
-                key={kpi.label}
-                className="group relative bg-card border border-border/80 p-4 sm:p-5 rounded-3xl shadow-sm overflow-hidden hover:-translate-y-1.5 hover:shadow-xl hover:border-primary/40 transition-all duration-300 cursor-pointer"
+                className="group relative bg-card border border-border/80 p-4 sm:p-5 rounded-3xl shadow-sm overflow-hidden hover:-translate-y-1 hover:shadow-xl hover:border-primary/40 transition-all duration-300 cursor-pointer h-full"
               >
                 {/* Ambient glow accent */}
                 <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl from-primary/10 to-transparent rounded-full blur-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
@@ -391,24 +426,37 @@ export default function ProviderDashboardPage() {
                 {/* Shimmer sweep bar on hover */}
                 <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000 pointer-events-none" />
 
-                <div className="flex items-center justify-between mb-2 relative z-10">
-                  <span className="text-xs font-bold text-muted-foreground group-hover:text-foreground transition-colors">
+                <div className="flex items-center justify-between gap-2 mb-2 relative z-10">
+                  <span className="text-xs font-bold text-muted-foreground group-hover:text-foreground transition-colors truncate">
                     {kpi.label}
                   </span>
-                  <div className={`w-8 h-8 rounded-xl ${kpi.color} flex items-center justify-center shadow-xs group-hover:scale-110 group-hover:rotate-6 transition-all duration-300`}>
+                  <div className={`w-8 h-8 rounded-xl ${kpi.color} flex items-center justify-center shadow-xs shrink-0 group-hover:scale-110 group-hover:rotate-6 transition-all duration-300`}>
                     {kpi.icon}
                   </div>
                 </div>
-                <div className="text-2xl sm:text-3xl font-extrabold font-mono tracking-tight relative z-10 group-hover:text-primary transition-colors">
+                <div className="text-xl sm:text-2xl lg:text-3xl font-extrabold font-mono tracking-tight relative z-10 group-hover:text-primary transition-colors truncate">
                   {isLoading ? <span className="text-muted-foreground text-base">—</span> : kpi.value}
                 </div>
-                <div className="text-[11px] text-muted-foreground mt-1 flex items-center justify-between relative z-10">
-                  <span>{kpi.sub}</span>
-                  <ChevronRight className="w-3.5 h-3.5 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all text-primary" />
+                <div className="text-[11px] text-muted-foreground mt-1 flex items-center justify-between gap-1 relative z-10">
+                  <span className="truncate">{kpi.sub}</span>
+                  <ChevronRight className="w-3.5 h-3.5 shrink-0 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all text-primary" />
                 </div>
               </div>
             );
-            return kpi.href ? <Link key={kpi.label} href={kpi.href} prefetch={false}>{card}</Link> : card;
+            return kpi.href ? (
+              <Link
+                key={kpi.label}
+                href={kpi.href}
+                prefetch={false}
+                className={isLastOddMobile ? 'col-span-2 sm:col-span-1 block h-full' : 'block h-full'}
+              >
+                {card}
+              </Link>
+            ) : (
+              <div key={kpi.label} className={isLastOddMobile ? 'col-span-2 sm:col-span-1' : undefined}>
+                {card}
+              </div>
+            );
           })}
         </div>
       </div>
@@ -460,32 +508,39 @@ export default function ProviderDashboardPage() {
           ) : (
             <div className="space-y-3">
               {todayAppointments.map((apt: any) => {
-                const isCompleted = ['Completed', 'completed'].includes(apt.status || '');
+                const aptId = String(apt._id || apt.id || '');
+                const isCompleted = ['Completed', 'completed'].includes(apt.status || apt.appointmentStatus || '');
                 const patientName = apt.patient?.name || apt.patient?.fullName || apt.patientDetails?.name || 'Patient';
                 const age = apt.patient?.age || apt.patientDetails?.age;
-                const time = apt.startTime || apt.scheduledTime || '';
+                const time = apt.startTime || apt.appointmentTime || apt.scheduledTime || '';
                 const session = apt.sessionNumber && apt.totalSessions
                   ? `Session ${apt.sessionNumber} of ${apt.totalSessions}`
                   : '';
                 const fee = apt.sessionFee || apt.totalAmount;
+                const detailHref = aptId ? `/app/appointments/${encodeURIComponent(aptId)}` : '/app/appointments';
+                const visitHref = aptId ? `/app/visits?apt=${encodeURIComponent(aptId)}` : '/app/visits';
                 return (
                   <div
-                    key={apt._id || apt.id}
-                    className={`p-4 rounded-2xl border flex items-start justify-between gap-3 ${
+                    key={aptId || patientName}
+                    className={`p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors ${
                       isCompleted
-                        ? 'border-border/80 bg-card/60'
-                        : 'border-2 border-primary/30 bg-primary/5'
+                        ? 'border-border/80 bg-card/60 hover:border-border'
+                        : 'border-2 border-primary/30 bg-primary/5 hover:border-primary/50'
                     }`}
                   >
-                    <div className="flex items-start gap-3">
+                    <Link
+                      href={detailHref}
+                      prefetch={false}
+                      className="flex items-start gap-3 flex-1 min-w-0 group"
+                    >
                       <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${
                         isCompleted ? 'bg-emerald-500/10 text-emerald-500' : 'bg-primary text-white shadow-md'
                       }`}>
                         {isCompleted ? <CheckCircle2 className="w-4 h-4" /> : <Navigation className="w-4 h-4" />}
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="text-xs font-bold text-foreground">
+                          <span className="text-xs sm:text-sm font-bold text-foreground group-hover:text-primary transition-colors">
                             {patientName}{age ? ` (${age}y)` : ''}
                           </span>
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
@@ -493,11 +548,14 @@ export default function ProviderDashboardPage() {
                               ? 'bg-emerald-500/10 text-emerald-500'
                               : 'bg-primary text-white'
                           }`}>
-                            {isCompleted ? 'Completed ✓' : time ? `Next Up (${time})` : apt.status}
+                            {isCompleted ? 'Completed ✓' : time ? `Next Up (${time})` : apt.status || 'Scheduled'}
                           </span>
                         </div>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {apt.condition || apt.packageName || '—'} • {apt.patient?.address || apt.patientDetails?.address || ''}
+                        <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                          {apt.condition || apt.packageName || 'Physiotherapy Visit'}
+                          {(apt.patient?.address?.street || apt.patient?.address || apt.patientDetails?.address)
+                            ? ` • ${typeof apt.patient?.address === 'string' ? apt.patient.address : (apt.patient?.address?.street || apt.patientDetails?.address || '')}`
+                            : ''}
                         </p>
                         {session && (
                           <p className="text-[11px] font-semibold text-primary mt-1">
@@ -505,14 +563,22 @@ export default function ProviderDashboardPage() {
                           </p>
                         )}
                       </div>
+                    </Link>
+                    <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                      {!isCompleted ? (
+                        <Link href={visitHref} prefetch={false}>
+                          <Button className="h-9 px-4 rounded-xl bg-primary hover:bg-primary/95 text-white font-bold text-xs shadow-md shrink-0">
+                            Start →
+                          </Button>
+                        </Link>
+                      ) : (
+                        <Link href={detailHref} prefetch={false}>
+                          <Button variant="outline" className="h-9 px-3 rounded-xl text-xs font-bold shrink-0">
+                            View
+                          </Button>
+                        </Link>
+                      )}
                     </div>
-                    {!isCompleted && (
-                      <Link href="/app/visits" prefetch={false}>
-                        <Button className="h-9 px-4 rounded-xl bg-primary hover:bg-primary/95 text-white font-bold text-xs shadow-md shrink-0">
-                          Start →
-                        </Button>
-                      </Link>
-                    )}
                   </div>
                 );
               })}
