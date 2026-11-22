@@ -24,6 +24,7 @@ export function resolveSafeNextPath(
     const base = new URL(requestOrigin);
     const target = new URL(next, base.origin);
     if (target.origin !== base.origin) return '/app';
+    if (!target.pathname.startsWith('/') || target.pathname.startsWith('//')) return '/app';
     if (isAuthPath(target.pathname)) return '/app';
     return `${target.pathname}${target.search}${target.hash}`;
   } catch {

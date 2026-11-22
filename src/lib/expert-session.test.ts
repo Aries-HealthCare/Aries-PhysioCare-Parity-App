@@ -21,6 +21,9 @@ test('resolveSafeNextPath blocks open redirects and auth-path loops while allowi
   // Open-redirect attempts
   assert.equal(resolveSafeNextPath('/\\evil.com', origin), '/app');
   assert.equal(resolveSafeNextPath('//evil.com', origin), '/app');
+  assert.equal(resolveSafeNextPath('/..//evil.com', origin), '/app');
+  assert.equal(resolveSafeNextPath('/.//evil.com', origin), '/app');
+  assert.equal(resolveSafeNextPath('/a/..//evil.com', origin), '/app');
   assert.equal(resolveSafeNextPath('/\t/evil.com', origin), '/app');
   assert.equal(resolveSafeNextPath('/app\r\nLocation: https://evil.com', origin), '/app');
   assert.equal(resolveSafeNextPath('https://evil.com/app', origin), '/app');
