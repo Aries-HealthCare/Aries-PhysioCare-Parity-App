@@ -33,7 +33,7 @@ function isCompletedStatus(apt: any): boolean {
     .trim()
     .toLowerCase()
     .replace(/[\s-]+/g, '_');
-  return s === 'completed' || s === 'done' || s === 'cancelled';
+  return s === 'completed' || s === 'done';
 }
 
 function formatDate(raw?: string): string {

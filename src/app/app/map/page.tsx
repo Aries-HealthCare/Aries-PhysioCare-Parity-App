@@ -24,6 +24,7 @@ import { EmbeddedMapFrame } from '@/components/map/embedded-map-frame';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { haversineDistanceKm } from '@/lib/dashboard-analytics';
+import { extractLeadDisplayFields, isUsableMapQuery } from '@/lib/lead-filtering';
 import { providerApi } from '@/services/provider-api';
 import { cn } from '@/lib/utils';
 
@@ -172,12 +173,14 @@ export default function LiveMapPage() {
       }
 
       if (leadsRes.status === 'fulfilled' && leadsRes.value) {
-        const merged = [
-          ...(leadsRes.value.newLeads || []).map((l: any) => ({ ...l, _leadBucket: 'new' })),
-          ...(leadsRes.value.acquiredLeads || []).map((l: any) => ({ ...l, _leadBucket: 'acquired' })),
-        ];
+        // Only show active, non-expired open/waiting broadcast leads on the map.
+        // Expired/closed leads are already filtered out by `partitionBroadcastLeads`.
+        const activeOpenLeads = (leadsRes.value.newLeads || []).map((l: any) => ({
+          ...l,
+          _leadBucket: 'new',
+        }));
         const seen = new Set<string>();
-        const uniqueLeads = merged.filter((l: any) => {
+        const uniqueLeads = activeOpenLeads.filter((l: any) => {
           const key = String(l._id || l.id || '');
           if (!key || seen.has(key)) return false;
           seen.add(key);
@@ -312,50 +315,23 @@ export default function LiveMapPage() {
       });
   }, [appointments]);
 
-  // Normalize nearby leads
+  // Normalize nearby active leads (already filtered for non-expired/non-closed by providerApi.getLeads)
   const leadStops: MapStop[] = useMemo(() => {
     return leads.map((lead: any) => {
-      const id = String(lead._id || lead.id);
-      const b = lead.broadcast || {};
-      const patient = b.patient || lead.patient || {};
-      const name =
-        lead.patientName ||
-        b.patientName ||
-        patient.fullName ||
-        `${patient.firstName || ''} ${patient.lastName || ''}`.trim() ||
-        'Nearby Patient Lead';
-      const address =
-        formatAddress(b.address) ||
-        formatAddress(lead.address) ||
-        formatAddress(patient.address) ||
-        [b.locality || lead.locality, b.area || lead.area, b.city || lead.city, b.pincode || lead.pincode]
-          .filter(Boolean)
-          .join(', ') ||
-        'Area details on lead card';
-      const condition =
-        b.condition ||
-        lead.condition ||
-        b.packageType ||
-        lead.packageType ||
-        (Array.isArray(patient.medicalConditions) ? patient.medicalConditions.join(', ') : '') ||
-        'Physiotherapy Inquiry';
-      const phone = patient.phone || b.phone || lead.phone || undefined;
-      const fee =
-        Number(b.estimatedFee || b.sessionFee || lead.estimatedFee || lead.sessionFee || 0) ||
-        undefined;
-      const isNew = lead._leadBucket === 'new' || !lead.therapistResponse;
+      const d = extractLeadDisplayFields(lead, { maskName: true });
+      const schedule = [d.scheduledDate, d.scheduledTime].filter(Boolean).join(' · ');
 
       return {
-        id: `lead:${id}`,
+        id: `lead:${d.id}`,
         kind: 'lead' as const,
-        title: name,
-        subtitle: condition,
-        address,
-        phone: phone ? String(phone) : undefined,
+        title: d.displayName,
+        subtitle: d.condition,
+        address: d.address || 'Location shared after assignment',
+        phone: d.phone || undefined,
         coords: extractItemCoords(lead),
-        scheduledLabel: b.scheduledTime || lead.scheduledTime || undefined,
-        statusLabel: isNew ? 'New Lead' : 'Interested',
-        fee,
+        scheduledLabel: schedule || d.expiry.remainingLabel,
+        statusLabel: d.isWaitingApproval ? 'Waiting Approval' : 'New Lead',
+        fee: d.payoutAmount > 0 ? d.payoutAmount : undefined,
         actionHref: '/app/leads',
         actionLabel: 'View Lead',
       };
@@ -418,14 +394,26 @@ export default function LiveMapPage() {
     }
 
     if (selectedStop) {
-      return {
-        lat: selectedStop.coords?.lat,
-        lng: selectedStop.coords?.lng,
-        query: selectedStop.address !== 'Address pending' ? selectedStop.address : selectedStop.title,
-        originLat: userCoords?.lat,
-        originLng: userCoords?.lng,
-        label: `${selectedStop.title} · ${selectedStop.kind === 'visit' ? 'Scheduled Visit' : 'Nearby Lead'}`,
-      };
+      const hasCoords = Boolean(selectedStop.coords);
+      const hasAddressQuery = isUsableMapQuery(selectedStop.address);
+      if (hasCoords || hasAddressQuery) {
+        return {
+          lat: selectedStop.coords?.lat,
+          lng: selectedStop.coords?.lng,
+          query: hasAddressQuery ? selectedStop.address : undefined,
+          originLat: userCoords?.lat,
+          originLng: userCoords?.lng,
+          label: `${selectedStop.title} · ${selectedStop.kind === 'visit' ? 'Scheduled Visit' : 'Nearby Lead'}`,
+        };
+      }
+      // Never feed placeholder text into Google Maps Embed — center on live GPS instead
+      if (userCoords) {
+        return {
+          lat: userCoords.lat,
+          lng: userCoords.lng,
+          label: 'My Live Location',
+        };
+      }
     }
 
     if (userCoords) {

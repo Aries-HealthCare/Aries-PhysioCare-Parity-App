@@ -97,19 +97,24 @@ export default function ProviderAvailabilityPage() {
     setError(null);
     setSavedSuccess(false);
     try {
-      // The endpoint is multipart because the onboarding step can carry a driving
-      // licence upload; scalar fields are sent the same way the mobile wizard sends them.
+      // The endpoint expects `areaOfServiceInfo` as a JSON string in multipart FormData,
+      // matching Flutter `edit_service_area_page.dart` and backend `addAreaOfServiceInfo`.
       const formData = new FormData();
-      formData.append('user', user?._id || '');
-      formData.append('city', form.city);
-      formData.append('serviceAreas', JSON.stringify(form.serviceAreas));
-      formData.append('targetPincodes', JSON.stringify(form.targetPincodes));
-      formData.append('serviceRadius', String(form.serviceRadius));
-      formData.append('maxDistance', String(form.maxDistance));
-      formData.append('commuteType', form.commuteType);
-      formData.append('travelCapacity', form.travelCapacity);
-      formData.append('travelTimePreference', form.travelTimePreference);
-      formData.append('urgentVisits', String(form.urgentVisits));
+      formData.append('user', user?.therapistId || user?._id || '');
+      formData.append(
+        'areaOfServiceInfo',
+        JSON.stringify({
+          city: form.city,
+          serviceAreas: form.serviceAreas,
+          targetPincodes: form.targetPincodes,
+          serviceRadius: form.serviceRadius,
+          maxDistance: form.maxDistance,
+          commuteType: form.commuteType,
+          travelCapacity: form.travelCapacity,
+          travelTimePreference: form.travelTimePreference,
+          urgentVisits: form.urgentVisits,
+        })
+      );
 
       const res = await providerApi.addAreaOfServiceInfo(formData);
       if (!res.success) {

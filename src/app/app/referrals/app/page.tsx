@@ -63,10 +63,17 @@ export default function AppReferralsDashboardPage() {
   }, [load]);
 
   const activeJoined = referrals.filter((r) =>
+    r.isProfileActive === true ||
     ['active', 'approved', 'completed', 'joined'].includes(String(r.status || '').toLowerCase())
   ).length;
   const pendingCount = referrals.length - activeJoined;
-  const earnedTotal = activeJoined * 1000;
+  const earnedTotal = referrals
+    .filter(
+      (r) =>
+        r.isProfileActive === true ||
+        ['active', 'approved', 'completed', 'joined'].includes(String(r.status || '').toLowerCase())
+    )
+    .reduce((sum, r) => sum + (Number(r.referralAmount) || 0), 0);
   const nextMilestone = activeJoined < 3 ? 3 : activeJoined < 5 ? 5 : 10;
   const milestonePct = Math.min(100, Math.round((activeJoined / nextMilestone) * 100));
 

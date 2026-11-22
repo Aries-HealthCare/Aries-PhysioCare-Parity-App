@@ -6,6 +6,8 @@ import { useProviderAuth } from '@/services/provider-auth-context';
 import { providerApi, resolveProfileImage } from '@/services/provider-api';
 import { DynamicAppLogo } from '@/components/ui/dynamic-app-logo';
 import { CountrySelector, COUNTRIES_CONFIG } from '@/components/country-selector';
+import { ProfilePreviewBanner } from '@/components/profile/profile-preview-banner';
+import { canEditProfileAndDocuments } from '@/lib/profile-edit-lock';
 import {
   User,
   Mail,
@@ -45,6 +47,7 @@ import { Label } from '@/components/ui/label';
 
 export default function ProviderProfilePage() {
   const { user, updateUserData } = useProviderAuth();
+  const canEdit = canEditProfileAndDocuments(user);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [activeTab, setActiveTab] = useState<
@@ -73,7 +76,7 @@ export default function ProviderProfilePage() {
   const [addressLineTwo, setAddressLineTwo] = useState('');
   const [area, setArea] = useState('');
   const [city, setCity] = useState('');
-  const [state, setState] = useState('Maharashtra');
+  const [state, setState] = useState('');
   const [zipCode, setZipCode] = useState('');
 
   // Country-specific KYC Values
@@ -81,13 +84,10 @@ export default function ProviderProfilePage() {
 
   // Professional Info
   const [role, setRole] = useState('Physiotherapist');
-  const [qualification, setQualification] = useState('BPT (Bachelor of Physiotherapy)');
-  const [specializations, setSpecializations] = useState<string[]>([
-    'Musculoskeletal & Orthopedic Rehabilitation',
-    'Post-Operative Rehabilitation',
-  ]);
-  const [certifications, setCertifications] = useState<string[]>(['Dry Needling', 'Manual Therapy']);
-  const [experience, setExperience] = useState('3–5 Years');
+  const [qualification, setQualification] = useState('');
+  const [specializations, setSpecializations] = useState<string[]>([]);
+  const [certifications, setCertifications] = useState<string[]>([]);
+  const [experience, setExperience] = useState('');
   const [licenseNumber, setLicenseNumber] = useState('');
   const [stateCouncil, setStateCouncil] = useState('');
   const [currentlyWorkingAt, setCurrentlyWorkingAt] = useState('');
@@ -95,10 +95,7 @@ export default function ProviderProfilePage() {
   const [clinicName, setClinicName] = useState('');
   const [clinicMonth, setClinicMonth] = useState('');
   const [clinicYear, setClinicYear] = useState('');
-  const [portableEquipment, setPortableEquipment] = useState<string[]>([
-    'TENS / IFT Machine',
-    'Therabands & Weights',
-  ]);
+  const [portableEquipment, setPortableEquipment] = useState<string[]>([]);
 
   // Banking Details
   const [accountType, setAccountType] = useState<'individual' | 'business'>('individual');
@@ -113,7 +110,7 @@ export default function ProviderProfilePage() {
 
   // Service Territory & Commute
   const [operatingRadiusKm, setOperatingRadiusKm] = useState('10');
-  const [pincodes, setPincodes] = useState<string[]>(['400092', '400103', '400067']);
+  const [pincodes, setPincodes] = useState<string[]>([]);
   const [newPincode, setNewPincode] = useState('');
   const [commuteMode, setCommuteMode] = useState('two_wheeler');
   const [drivingLicense, setDrivingLicense] = useState('');
@@ -122,9 +119,9 @@ export default function ProviderProfilePage() {
   const [acceptEmergencyVisits, setAcceptEmergencyVisits] = useState(true);
 
   // Emergency Contacts
-  const [emergencyName, setEmergencyName] = useState('Emergency SOS Team');
+  const [emergencyName, setEmergencyName] = useState('');
   const [emergencyPhone, setEmergencyPhone] = useState('');
-  const [emergencyRelation, setEmergencyRelation] = useState('Clinical Lead');
+  const [emergencyRelation, setEmergencyRelation] = useState('');
   const [secEmergencyName, setSecEmergencyName] = useState('');
   const [secEmergencyPhone, setSecEmergencyPhone] = useState('');
   const [secEmergencyRelation, setSecEmergencyRelation] = useState('');
@@ -231,6 +228,7 @@ export default function ProviderProfilePage() {
   }, [user]);
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canEdit) return;
     const file = e.target.files?.[0];
     if (!file) return;
     setIsUploadingPhoto(true);
@@ -251,6 +249,10 @@ export default function ProviderProfilePage() {
 
   const handleSaveAll = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canEdit) {
+      setSaveError('Profile is in preview mode. Request Admin edit permission first.');
+      return;
+    }
     setIsSaving(true);
     try {
       const payload: any = {
@@ -285,7 +287,7 @@ export default function ProviderProfilePage() {
         clinicEstablishmentMonth: clinicMonth,
         clinicEstablishmentYear: clinicYear,
         portableEquipment,
-        bankDetails: {
+        bankInfo: {
           accountType,
           businessName: accountType === 'business' ? businessName : undefined,
           bankName,
@@ -298,7 +300,18 @@ export default function ProviderProfilePage() {
           transitNumber: selectedCountry === 'Canada' ? bankCode : undefined,
           upiId,
           panNumber: selectedCountry === 'India' ? taxNumber : undefined,
-          taxNumber,
+        },
+        areaOfServiceInfo: {
+          city,
+          pincode: zipCode,
+          targetPincodes: pincodes,
+          serviceRadius: parseInt(operatingRadiusKm, 10) || 10,
+          maxDistance: parseInt(operatingRadiusKm, 10) || 10,
+          commuteType: commuteMode,
+          drivingLicenseNumber: drivingLicense,
+          travelCapacity: dailyCapacity,
+          travelTimePreference: timePreference,
+          urgentVisits: acceptEmergencyVisits,
         },
         targetPincodes: pincodes,
         operatingRadiusKm: parseInt(operatingRadiusKm, 10) || 10,
@@ -375,21 +388,25 @@ export default function ProviderProfilePage() {
                   </div>
                 )}
               </div>
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="absolute -bottom-1 -right-1 p-2 rounded-2xl bg-primary text-white shadow-lg hover:scale-105 transition-transform"
-                title="Upload Profile Photo"
-              >
-                <Camera className="w-3.5 h-3.5" />
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handlePhotoUpload}
-              />
+              {canEdit && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="absolute -bottom-1 -right-1 p-2 rounded-2xl bg-primary text-white shadow-lg hover:scale-105 transition-transform"
+                    title="Upload Profile Photo"
+                  >
+                    <Camera className="w-3.5 h-3.5" />
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handlePhotoUpload}
+                  />
+                </>
+              )}
             </div>
 
             {/* Profile Details */}
@@ -417,33 +434,41 @@ export default function ProviderProfilePage() {
 
           {/* Quick Actions */}
           <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-            <Button asChild variant="outline" size="sm" className="h-10 rounded-2xl text-xs font-bold">
-              <Link href="/app/profile/edit">Edit Profile</Link>
-            </Button>
-            <Button asChild variant="outline" size="sm" className="h-10 rounded-2xl text-xs font-bold">
-              <Link href="/app/profile/service-area">Service Area</Link>
-            </Button>
+            {canEdit && (
+              <>
+                <Button asChild variant="outline" size="sm" className="h-10 rounded-2xl text-xs font-bold">
+                  <Link href="/app/profile/edit">Edit Profile</Link>
+                </Button>
+                <Button asChild variant="outline" size="sm" className="h-10 rounded-2xl text-xs font-bold">
+                  <Link href="/app/profile/service-area">Service Area</Link>
+                </Button>
+              </>
+            )}
             <Button asChild variant="outline" size="sm" className="h-10 rounded-2xl text-xs font-bold">
               <Link href="/app/profile/digital-id">Digital ID</Link>
             </Button>
-            <Button
-              type="button"
-              onClick={handleSaveAll}
-              disabled={isSaving}
-              className="w-full sm:w-auto h-10 px-5 rounded-2xl font-bold gap-2 shadow-md shadow-primary/20 text-xs"
-            >
-              {isSaving ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : savedSuccess ? (
-                <Check className="w-4 h-4 text-emerald-400" />
-              ) : (
-                <Save className="w-4 h-4" />
-              )}
-              <span>{savedSuccess ? 'Changes Saved!' : 'Save All Changes'}</span>
-            </Button>
+            {canEdit && (
+              <Button
+                type="button"
+                onClick={handleSaveAll}
+                disabled={isSaving}
+                className="w-full sm:w-auto h-10 px-5 rounded-2xl font-bold gap-2 shadow-md shadow-primary/20 text-xs"
+              >
+                {isSaving ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : savedSuccess ? (
+                  <Check className="w-4 h-4 text-emerald-400" />
+                ) : (
+                  <Save className="w-4 h-4" />
+                )}
+                <span>{savedSuccess ? 'Changes Saved!' : 'Save All Changes'}</span>
+              </Button>
+            )}
           </div>
         </div>
       </div>
+
+      <ProfilePreviewBanner contextLabel="profile details, bank account & KYC documents" />
 
       {saveError && (
         <div className="p-4 rounded-2xl text-xs font-bold flex items-center gap-2 bg-red-500/10 text-red-600 border border-red-500/30">
@@ -534,7 +559,7 @@ export default function ProviderProfilePage() {
 
       {/* TAB 1: Personal & KYC */}
       {activeTab === 'personal' && (
-        <div className="bg-card border border-border rounded-3xl p-6 sm:p-8 shadow-sm space-y-6 animate-in fade-in">
+        <fieldset disabled={!canEdit} className="bg-card border border-border rounded-3xl p-6 sm:p-8 shadow-sm space-y-6 animate-in fade-in disabled:opacity-95">
           <div>
             <h2 className="text-base font-extrabold text-foreground font-outfit">
               Personal Information & Identity Documents
@@ -547,10 +572,12 @@ export default function ProviderProfilePage() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <Label className="text-xs font-bold">Country of Practice</Label>
-              <div className="mt-1.5">
+              <div className={`mt-1.5 ${!canEdit ? 'pointer-events-none opacity-75' : ''}`}>
                 <CountrySelector
                   selectedCountry={selectedCountry}
-                  onSelectCountry={(c) => setSelectedCountry(c)}
+                  onSelectCountry={(c) => {
+                    if (canEdit) setSelectedCountry(c);
+                  }}
                 />
               </div>
             </div>
@@ -712,12 +739,12 @@ export default function ProviderProfilePage() {
               ))}
             </div>
           </div>
-        </div>
+        </fieldset>
       )}
 
       {/* TAB 2: Clinical & Qualifications */}
       {activeTab === 'professional' && (
-        <div className="bg-card border border-border rounded-3xl p-6 sm:p-8 shadow-sm space-y-6 animate-in fade-in">
+        <fieldset disabled={!canEdit} className="bg-card border border-border rounded-3xl p-6 sm:p-8 shadow-sm space-y-6 animate-in fade-in disabled:opacity-95">
           <div>
             <h2 className="text-base font-extrabold text-foreground font-outfit">
               Clinical Specializations & Hospital Affiliations
@@ -828,12 +855,12 @@ export default function ProviderProfilePage() {
               </div>
             </div>
           </div>
-        </div>
+        </fieldset>
       )}
 
       {/* TAB 3: Banking & Payouts */}
       {activeTab === 'banking' && (
-        <div className="bg-card border border-border rounded-3xl p-6 sm:p-8 shadow-sm space-y-6 animate-in fade-in">
+        <fieldset disabled={!canEdit} className="bg-card border border-border rounded-3xl p-6 sm:p-8 shadow-sm space-y-6 animate-in fade-in disabled:opacity-95">
           <div>
             <h2 className="text-base font-extrabold text-foreground font-outfit">
               Banking & Instant Settlement Configuration
@@ -911,12 +938,12 @@ export default function ProviderProfilePage() {
               </div>
             )}
           </div>
-        </div>
+        </fieldset>
       )}
 
       {/* TAB 4: Service Territory & Commute */}
       {activeTab === 'serviceArea' && (
-        <div className="bg-card border border-border rounded-3xl p-6 sm:p-8 shadow-sm space-y-6 animate-in fade-in">
+        <fieldset disabled={!canEdit} className="bg-card border border-border rounded-3xl p-6 sm:p-8 shadow-sm space-y-6 animate-in fade-in disabled:opacity-95">
           <div>
             <h2 className="text-base font-extrabold text-foreground font-outfit">
               Service Territory, Commute & Capacity
@@ -1023,12 +1050,12 @@ export default function ProviderProfilePage() {
               </div>
             </div>
           </div>
-        </div>
+        </fieldset>
       )}
 
       {/* TAB 5: Emergency Contacts */}
       {activeTab === 'emergency' && (
-        <div className="bg-card border border-border rounded-3xl p-6 sm:p-8 shadow-sm space-y-6 animate-in fade-in">
+        <fieldset disabled={!canEdit} className="bg-card border border-border rounded-3xl p-6 sm:p-8 shadow-sm space-y-6 animate-in fade-in disabled:opacity-95">
           <div>
             <h2 className="text-base font-extrabold text-foreground font-outfit">
               Clinical Safety & Emergency SOS Contacts
@@ -1069,7 +1096,7 @@ export default function ProviderProfilePage() {
               />
             </div>
           </div>
-        </div>
+        </fieldset>
       )}
 
       {/* TAB 6: Digital ID Card */}

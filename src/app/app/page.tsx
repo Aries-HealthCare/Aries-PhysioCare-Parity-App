@@ -94,6 +94,8 @@ export default function ProviderDashboardPage() {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const todayApts = (aptsData || []).filter((a: any) => {
+        const status = String(a.appointmentStatus || a.status || '').trim().toLowerCase();
+        if (status === 'cancelled' || status === 'canceled') return false;
         const d = new Date(a.appointmentDate || a.scheduledTime || '');
         d.setHours(0, 0, 0, 0);
         return d.getTime() === today.getTime();

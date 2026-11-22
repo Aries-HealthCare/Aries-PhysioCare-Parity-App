@@ -27,6 +27,7 @@ import {
   normalizeChecklist,
   type ParityChecklistItem,
 } from '@/lib/onboarding-checklist';
+import { partitionBroadcastLeads } from '@/lib/lead-filtering';
 
 /**
  * Request prefix for mobile-shaped paths.
@@ -270,6 +271,12 @@ export interface MobileExpertProfile {
   onboardingTourCompleted?: boolean;
   onboardingTourCompletedAt?: string;
   onboardingTourViewCount?: number;
+
+  // Admin-controlled Preview Mode / Edit Permission
+  profileEditAllowed?: boolean;
+  profileEditRequested?: boolean;
+  profileEditRequestReason?: string;
+  profileEditRequestedAt?: string;
 
   // KYC document URLs the mobile document vault renders
   aadharCardUrl?: string;
@@ -755,6 +762,15 @@ class ProviderApiService {
       onboardingTourCompletedAt: tProfile.onboardingTourCompletedAt,
       onboardingTourViewCount: toNum(tProfile.onboardingTourViewCount) ?? 0,
 
+      // Admin-controlled Preview Mode / Edit Permission
+      profileEditAllowed: Boolean(expert.profileEditAllowed ?? tProfile.profileEditAllowed),
+      profileEditRequested: Boolean(expert.profileEditRequested ?? tProfile.profileEditRequested),
+      profileEditRequestReason:
+        typeof (expert.profileEditRequestReason ?? tProfile.profileEditRequestReason) === 'string'
+          ? String(expert.profileEditRequestReason ?? tProfile.profileEditRequestReason)
+          : '',
+      profileEditRequestedAt: expert.profileEditRequestedAt ?? tProfile.profileEditRequestedAt,
+
       // KYC document URLs (mobile document vault)
       aadharCardUrl: aadharFrontUrl,
       aadharCardBackUrl: aadharBackUrl,
@@ -943,6 +959,51 @@ class ProviderApiService {
     return this.editProfile(payload);
   }
 
+  /**
+   * POST /api/app/expert/requestProfileEdit
+   * Requests Admin permission to unlock profile fields and KYC document uploads
+   * while the verified therapist account is protected in Preview Mode.
+   */
+  public async requestProfileEdit(
+    reason?: string
+  ): Promise<{ success: boolean; result?: MobileExpertProfile; message?: string }> {
+    const expId = this.getCurrentUserId();
+    const note =
+      (reason || '').trim() ||
+      'Requesting Admin permission to edit profile details or upload updated documents.';
+    try {
+      const res = await apiPost('/api/app/expert/requestProfileEdit', {
+        user: expId,
+        reason: note,
+      });
+      const rawExpert = (res as any).expert || res.result || res.data;
+      return {
+        success: res.success !== false,
+        result: rawExpert ? this.normalizeExpertProfile(rawExpert) : undefined,
+        message: res.message || 'Edit permission request sent to Admin.',
+      };
+    } catch (err: any) {
+      // If production backend has not yet rolled out /requestProfileEdit (404),
+      // file a structured support ticket so Admin still receives the request immediately.
+      if (err instanceof ApiError && err.statusCode === 404) {
+        const ticket = await this.createSupportTicket(
+          'Profile & Document Edit Permission Request',
+          'Profile & KYC',
+          'High',
+          note,
+          expId || undefined
+        );
+        return {
+          success: ticket.success,
+          message: ticket.success
+            ? 'Edit permission request submitted to Admin team.'
+            : ticket.message || 'Could not submit edit permission request.',
+        };
+      }
+      throw err;
+    }
+  }
+
   /** POST /api/app/expert/refreshUser — mirrors `ApiService.expertRefreshUser`. */
   public async refreshUser(
     expertId: string
@@ -1067,10 +1128,18 @@ class ProviderApiService {
     }
   }
 
-  /** POST /api/admin/wallet/request-withdrawal — same endpoint as `ApiService.requestWithdrawal`. */
+  /** POST /api/app/wallet/request-withdrawal — matches `PayoutService.requestWithdrawal` in mobile app. */
   public async requestWithdrawal(amount: number): Promise<{ success: boolean; message?: string }> {
-    const res = await apiPost('/api/admin/wallet/request-withdrawal', { amount });
-    return { success: res.success !== false, message: res.message };
+    try {
+      const res = await apiPost('/api/app/wallet/request-withdrawal', { amount });
+      return { success: res.success !== false, message: res.message };
+    } catch (err: any) {
+      if (err instanceof ApiError && err.statusCode === 404) {
+        const res = await apiPost('/api/admin/wallet/request-withdrawal', { amount });
+        return { success: res.success !== false, message: res.message };
+      }
+      throw err;
+    }
   }
 
   /** POST /api/app/supportTicket/createSupportTicket — mirrors `ApiService.createSupportTicket`. */
@@ -1109,7 +1178,7 @@ class ProviderApiService {
   public getCurrentUserId(): string | null {
     const parsed = this.getCachedUser() as any;
     if (!parsed) return null;
-    return parsed._id || parsed.id || parsed.therapistId || parsed.uid || null;
+    return parsed.therapistId || parsed._id || parsed.id || parsed.uid || null;
   }
 
   // ==========================================
@@ -1240,7 +1309,7 @@ class ProviderApiService {
     });
     return {
       success: res.success !== false,
-      result: res.result ? this.normalizeExpertProfile(res.result) : undefined,
+      result: (res as any).data ?? res.result,
       message: res.message,
     };
   }
@@ -1279,13 +1348,7 @@ class ProviderApiService {
     const res = await apiPost('/api/app/broadcastlisting/fetchBroadcastlisting', { expert: expId });
 
     const listings = unwrapList(res, 'broadcastlisting', 'broadcastListings');
-    const isInterested = (listing: any) =>
-      String(listing?.therapistResponse || '').toLowerCase() === 'interested';
-
-    return {
-      newLeads: listings.filter((listing) => !listing?.therapistResponse),
-      acquiredLeads: listings.filter(isInterested),
-    };
+    return partitionBroadcastLeads(listings);
   }
 
   /**
@@ -1425,15 +1488,18 @@ class ProviderApiService {
   public async markArrived(
     appointmentId: string,
     coords?: { lat: number; lng: number }
-  ): Promise<{ success: boolean; message?: string }> {
+  ): Promise<{ success: boolean; validated?: boolean; message?: string }> {
     const res = await apiPost(`/api/app/appointment/${appointmentId}/validate-arrival`, {
-      location: {
-        latitude: coords?.lat,
-        longitude: coords?.lng,
-        timestamp: new Date().toISOString(),
-      },
+      latitude: coords?.lat,
+      longitude: coords?.lng,
+      timestamp: new Date().toISOString(),
     });
-    return { success: res.success !== false, message: res.message };
+    const validated = (res as any).validated !== false;
+    return {
+      success: res.success !== false && validated,
+      validated,
+      message: res.message,
+    };
   }
 
   /**
@@ -1473,6 +1539,10 @@ class ProviderApiService {
       apiPost('/api/app/expert/fetchReferTherapist', { referredBy: expId }),
       apiPost('/api/app/patient/fetchReferPatients', { therapist: expId }),
     ]);
+
+    if (therapistRes.status === 'rejected' && patientRes.status === 'rejected') {
+      throw therapistRes.reason || patientRes.reason;
+    }
 
     return {
       referTherapist:
@@ -1584,13 +1654,29 @@ class ProviderApiService {
   /** POST /api/app/expert/createReferTherapist — mirrors `ApiService.createReferTherapist`. */
   public async createReferTherapist(payload: {
     referredBy: string;
-    doctorName: string;
-    doctorMobile: string;
+    doctorName?: string;
+    fullName?: string;
+    doctorMobile?: string;
+    phone?: string;
     specialization?: string;
+    therapistProfessionalRole?: string;
     city?: string;
     [key: string]: any;
   }): Promise<{ success: boolean; result?: any; message?: string }> {
-    const res = await apiPost('/api/app/expert/createReferTherapist', payload);
+    const fullName = (payload.fullName || payload.doctorName || '').trim();
+    const phone = (payload.phone || payload.doctorMobile || '').trim();
+    const therapistProfessionalRole = (
+      payload.therapistProfessionalRole ||
+      payload.specialization ||
+      'Physiotherapist'
+    ).trim();
+    const res = await apiPost('/api/app/expert/createReferTherapist', {
+      ...payload,
+      referredBy: payload.referredBy || this.getCurrentUserId(),
+      fullName,
+      phone,
+      therapistProfessionalRole,
+    });
     return {
       success: res.success !== false,
       result: unwrap(res),
@@ -1614,27 +1700,81 @@ class ProviderApiService {
     availableBalance: number;
     pendingBalance: number;
     lockedBalance: number;
+    liabilityBalance: number;
+    totalPaidOut: number;
+    totalEarnings: number;
     currency: string;
     walletStatus: string;
+    nextWithdrawalDate?: string;
+    payoutGateway?: string;
+    isPayoutDayToday?: boolean;
     isEligibleForPayout: boolean;
   }> {
-    const res = await apiGet('/api/app/wallet/my-wallet');
-    const wallet = unwrap(res) || {};
-    const available = Number(wallet.availableBalance ?? wallet.walletAmount ?? 0) || 0;
+    try {
+      const res = await apiGet('/api/app/wallet/my-wallet');
+      const wallet = unwrap(res) || {};
+      const available = Number(wallet.availableBalance ?? wallet.walletAmount ?? 0) || 0;
+      const locked = Number(wallet.lockedBalance ?? 0) || 0;
 
-    return {
-      availableBalance: available,
-      pendingBalance: Number(wallet.pendingBalance ?? 0) || 0,
-      lockedBalance: Number(wallet.lockedBalance ?? 0) || 0,
-      currency: wallet.currency || 'INR',
-      walletStatus: wallet.status || wallet.walletStatus || 'Active',
-      isEligibleForPayout: available >= 500,
-    };
+      return {
+        availableBalance: available,
+        pendingBalance: Number(wallet.pendingBalance ?? 0) || 0,
+        lockedBalance: locked,
+        liabilityBalance: Number(wallet.liabilityBalance ?? 0) || 0,
+        totalPaidOut: Number(wallet.totalPaidOut ?? 0) || 0,
+        totalEarnings: Number(wallet.totalEarnings ?? wallet.totalEarning ?? 0) || 0,
+        currency: wallet.currency || 'INR',
+        walletStatus: wallet.status || wallet.walletStatus || 'Active',
+        nextWithdrawalDate: wallet.nextWithdrawalDate || undefined,
+        payoutGateway: wallet.payoutGateway || 'razorpayx',
+        isPayoutDayToday: Boolean(wallet.isPayoutDayToday),
+        isEligibleForPayout:
+          wallet.isEligibleForPayout !== undefined
+            ? Boolean(wallet.isEligibleForPayout)
+            : available > 0 || locked > 0,
+      };
+    } catch (err: any) {
+      // Legacy backend instances may return 404 ("Therapist not found") when the
+      // JWT subject is User._id instead of Therapist._id. Fall back to refreshUser()
+      // so the provider always sees their real MongoDB wallet balances cleanly.
+      const expId = this.getCurrentUserId();
+      if (expId && err instanceof ApiError && (err.statusCode === 404 || err.statusCode === 401)) {
+        const refreshed = await this.refreshUser(expId).catch(() => null);
+        const profile = refreshed?.result || this.getCachedUser();
+        if (profile) {
+          const available = Number(profile.walletAmount ?? profile.walletBalance ?? 0) || 0;
+          return {
+            availableBalance: available,
+            pendingBalance: 0,
+            lockedBalance: 0,
+            liabilityBalance: 0,
+            totalPaidOut: 0,
+            totalEarnings: Number(profile.totalEarnings ?? profile.totalEarning ?? 0) || 0,
+            currency: 'INR',
+            walletStatus: profile.walletStatus || 'Active',
+            payoutGateway: 'razorpayx',
+            isEligibleForPayout: available > 0,
+          };
+        }
+      }
+      throw err;
+    }
   }
 
-  /** POST /api/app/walletTransaction/fetchWalletTransactions  body: { expert } */
+  /**
+   * GET /api/app/wallet/transactions?limit=50 (primary — matches mobile `PayoutService`),
+   * with fallback to POST /api/app/walletTransaction/fetchWalletTransactions.
+   */
   public async getTransactions(expertId?: string): Promise<any[]> {
     const expId = expertId || this.getCurrentUserId();
+    try {
+      const res = await apiGet('/api/app/wallet/transactions?limit=50');
+      const items = unwrapList(res, 'transactions', 'walletTransactions');
+      if (items.length > 0 || !expId) return items;
+    } catch {
+      // Fall back to legacy POST endpoint below
+    }
+    if (!expId) return [];
     const res = await apiPost('/api/app/walletTransaction/fetchWalletTransactions', { expert: expId });
     return unwrapList(res, 'transactions', 'walletTransactions');
   }
@@ -1926,6 +2066,7 @@ class ProviderApiService {
    */
   public async generateInvoice(payload: {
     patientId?: string;
+    invoiceType?: 'daily' | 'total' | 'summarised';
     patientName: string;
     patientPhone?: string;
     treatmentType: string;
@@ -1938,6 +2079,7 @@ class ProviderApiService {
   }): Promise<{ success: boolean; invoiceNumber?: string; downloadUrl?: string; message?: string }> {
     const res = await apiPost('/api/app/patient/sendInvoice', {
       expert: this.getCurrentUserId(),
+      invoiceType: payload.invoiceType || 'daily',
       ...payload,
       totalAmount:
         Number(payload.sessionFee || 0) +
@@ -2219,8 +2361,8 @@ class ProviderApiService {
     const res = await apiPost('/api/app/expert/updateQuietHours', {
       user: this.getCurrentUserId(),
       isQuietHoursEnabled: payload.enabled,
-      quietHoursFrom: payload.start,
-      quietHoursTo: payload.end,
+      quietHoursFrom: payload.enabled ? payload.start || '22:00' : '00:00',
+      quietHoursTo: payload.enabled ? payload.end || '07:00' : '00:00',
     });
     return {
       success: res.success !== false,

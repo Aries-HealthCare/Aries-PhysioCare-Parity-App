@@ -45,9 +45,23 @@ function getNextPayoutDate(): string {
 
 export default function ProviderWalletPage() {
   const { user } = useProviderAuth();
-  const [walletData, setWalletData] = useState({
+  const [walletData, setWalletData] = useState<{
+    availableBalance: number;
+    pendingBalance: number;
+    lockedBalance: number;
+    liabilityBalance: number;
+    totalPaidOut: number;
+    totalEarnings: number;
+    walletStatus: string;
+    nextWithdrawalDate?: string;
+    isEligibleForPayout: boolean;
+  }>({
     availableBalance: 0,
     pendingBalance: 0,
+    lockedBalance: 0,
+    liabilityBalance: 0,
+    totalPaidOut: 0,
+    totalEarnings: 0,
     walletStatus: 'Active',
     isEligibleForPayout: false,
   });
@@ -62,24 +76,34 @@ export default function ProviderWalletPage() {
 
   const expertId = user?.therapistId || user?.uid || user?._id || '';
 
-  // Compute KPIs from transaction history (matches wallet.dart logic)
-  let totalEarned = 0;
-  let totalPaidOut = 0;
+  // Compute KPIs from wallet snapshot + transaction history (matches wallet.dart logic 1:1)
+  let totalEarnedTx = 0;
+  let totalPaidOutTx = 0;
   let pendingFromTx = 0;
   for (const tx of transactions) {
+    const amt = Number(tx.amount || 0);
     if (tx.type === 'CREDIT') {
       const s = (tx.status || '').toLowerCase();
-      if (s === 'completed' || s === 'success') totalEarned += tx.amount;
-      else if (s === 'pending') pendingFromTx += tx.amount;
+      if (s === 'completed' || s === 'success' || s === 'cleared') totalEarnedTx += amt;
+      else if (s === 'pending' || s === 'locked') pendingFromTx += amt;
     } else if (tx.type === 'DEBIT' && (tx.category || '').toUpperCase().includes('WITHDRAWAL')) {
       const s = (tx.status || '').toLowerCase();
-      if (s === 'completed' || s === 'success') totalPaidOut += tx.amount;
+      if (s === 'completed' || s === 'success' || s === 'cleared') totalPaidOutTx += amt;
     }
   }
-  const available = walletData.availableBalance > 0 ? walletData.availableBalance
+  const available = walletData.availableBalance > 0
+    ? walletData.availableBalance
     : (user?.walletAmount ?? user?.walletBalance ?? 0);
-  const pending = pendingFromTx > 0 ? pendingFromTx : walletData.pendingBalance;
-  const totalEarnedFinal = totalEarned > 0 ? (totalEarned + pending) : (available + pending + totalPaidOut);
+  const serverPending = walletData.pendingBalance + walletData.lockedBalance;
+  const pending = serverPending > 0 ? serverPending : pendingFromTx;
+  const totalPaidOut = walletData.totalPaidOut > 0 ? walletData.totalPaidOut : totalPaidOutTx;
+  const totalEarnedFinal =
+    walletData.totalEarnings > 0
+      ? walletData.totalEarnings
+      : totalEarnedTx > 0
+        ? totalEarnedTx + pending
+        : available + pending + totalPaidOut;
+  const nextPayoutLabel = walletData.nextWithdrawalDate || getNextPayoutDate();
 
   // 6-month earnings chart data (matches wallet.dart monthlyEarnings)
   const monthlyEarnings: Record<string, number> = {};
@@ -106,13 +130,23 @@ export default function ProviderWalletPage() {
     if (showRefresh) setRefreshing(true);
     else setIsLoading(true);
     try {
-      const [balanceData, txData] = await Promise.all([
+      const [balanceRes, txRes] = await Promise.allSettled([
         providerApi.getWalletBalance(),
-        expertId ? providerApi.getTransactions(expertId) : Promise.resolve([]),
+        providerApi.getTransactions(expertId || undefined),
       ]);
-      setWalletData(balanceData);
-      setTransactions(txData);
-      setLoadError(null);
+      if (balanceRes.status === 'fulfilled') {
+        setWalletData(balanceRes.value);
+      }
+      if (txRes.status === 'fulfilled') {
+        setTransactions(Array.isArray(txRes.value) ? txRes.value : []);
+      }
+      if (balanceRes.status === 'rejected' && txRes.status === 'rejected') {
+        setLoadError(
+          (balanceRes.reason as any)?.message || 'Could not load your wallet from the server.'
+        );
+      } else {
+        setLoadError(null);
+      }
     } catch (e: any) {
       setLoadError(e?.message || 'Could not load your wallet from the server.');
     } finally {
@@ -210,7 +244,7 @@ export default function ProviderWalletPage() {
                   </div>
                   <p className="text-xs opacity-70 mt-1">
                     Status: <span className="font-bold opacity-100">{walletData.walletStatus}</span>
-                    {' · '}Next payout: <span className="font-bold opacity-100">{getNextPayoutDate()}</span>
+                    {' · '}Next payout: <span className="font-bold opacity-100">{nextPayoutLabel}</span>
                   </p>
                 </div>
                 <div className="w-14 h-14 rounded-2xl bg-white/10 flex items-center justify-center">

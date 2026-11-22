@@ -21,9 +21,12 @@ import { Label } from '@/components/ui/label';
 import { useProviderAuth } from '@/services/provider-auth-context';
 import { providerApi, resolveProfileImage } from '@/services/provider-api';
 import { useToast } from '@/hooks/use-toast';
+import { ProfilePreviewBanner } from '@/components/profile/profile-preview-banner';
+import { canEditProfileAndDocuments } from '@/lib/profile-edit-lock';
 
 export default function EditProfilePage() {
   const { user, refreshProfile, updateUserData } = useProviderAuth();
+  const canEdit = canEditProfileAndDocuments(user);
   const { toast } = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -91,6 +94,7 @@ export default function EditProfilePage() {
   }, [user]);
 
   const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canEdit) return;
     const file = e.target.files?.[0];
     if (!file) return;
     setUploadingPhoto(true);
@@ -180,6 +184,14 @@ export default function EditProfilePage() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canEdit) {
+      toast({
+        title: 'Preview Mode',
+        description: 'Request Admin edit permission before modifying profile details.',
+        variant: 'destructive',
+      });
+      return;
+    }
     if (!firstName.trim()) {
       toast({ title: 'First name required', description: 'Enter your first name to save.', variant: 'destructive' });
       return;
@@ -267,6 +279,8 @@ export default function EditProfilePage() {
         </div>
       </div>
 
+      <ProfilePreviewBanner contextLabel="profile details, portrait & bank details" />
+
       {/* Studio Portrait Card */}
       <div className="rounded-3xl border border-border/80 bg-card p-6 shadow-sm flex flex-col sm:flex-row items-center gap-6">
         <div className="relative">
@@ -287,44 +301,47 @@ export default function EditProfilePage() {
           <p className="text-xs text-muted-foreground max-w-lg">
             Upload a clear front-facing photo to generate your verified AriesXpert clinical portrait used on your Digital ID and patient booking cards.
           </p>
-          <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-1">
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*"
-              onChange={handlePhotoSelect}
-              className="hidden"
-            />
-            <Button
-              type="button"
-              size="sm"
-              disabled={uploadingPhoto}
-              onClick={() => fileRef.current?.click()}
-              className="h-9 rounded-xl text-xs font-bold gap-1.5"
-            >
-              {uploadingPhoto ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
-              <span>{uploadingPhoto ? 'Uploading…' : 'Upload New Photo'}</span>
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={refreshingPortrait}
-              onClick={handleRefreshPortrait}
-              className="h-9 rounded-xl text-xs font-bold gap-1.5"
-            >
-              {refreshingPortrait ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <RefreshCw className="w-3.5 h-3.5" />
-              )}
-              <span>Refresh Portrait</span>
-            </Button>
-          </div>
+          {canEdit && (
+            <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-1">
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                onChange={handlePhotoSelect}
+                className="hidden"
+              />
+              <Button
+                type="button"
+                size="sm"
+                disabled={uploadingPhoto}
+                onClick={() => fileRef.current?.click()}
+                className="h-9 rounded-xl text-xs font-bold gap-1.5"
+              >
+                {uploadingPhoto ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
+                <span>{uploadingPhoto ? 'Uploading…' : 'Upload New Photo'}</span>
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={refreshingPortrait}
+                onClick={handleRefreshPortrait}
+                className="h-9 rounded-xl text-xs font-bold gap-1.5"
+              >
+                {refreshingPortrait ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-3.5 h-3.5" />
+                )}
+                <span>Refresh Portrait</span>
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 
       <form onSubmit={handleSave} className="space-y-6">
+        <fieldset disabled={!canEdit} className="space-y-6 disabled:opacity-95">
         {/* Personal Info */}
         <section className="rounded-3xl border border-border/80 bg-card p-6 shadow-sm space-y-4">
           <h2 className="text-sm font-outfit font-extrabold flex items-center gap-2">
@@ -480,14 +497,18 @@ export default function EditProfilePage() {
           </p>
         </section>
 
+        </fieldset>
+
         <div className="flex justify-end gap-3">
           <Button asChild type="button" variant="outline" className="h-11 rounded-2xl text-xs font-bold">
-            <Link href="/app/profile">Cancel</Link>
+            <Link href="/app/profile">{canEdit ? 'Cancel' : 'Back to Profile'}</Link>
           </Button>
-          <Button type="submit" disabled={saving} className="h-11 px-8 rounded-2xl text-xs font-extrabold gap-2">
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            <span>{saving ? 'Saving Changes…' : 'Save Profile Changes'}</span>
-          </Button>
+          {canEdit && (
+            <Button type="submit" disabled={saving} className="h-11 px-8 rounded-2xl text-xs font-extrabold gap-2">
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              <span>{saving ? 'Saving Changes…' : 'Save Profile Changes'}</span>
+            </Button>
+          )}
         </div>
       </form>
     </div>

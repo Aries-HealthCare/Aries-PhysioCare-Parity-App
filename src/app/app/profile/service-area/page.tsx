@@ -19,9 +19,12 @@ import { Label } from '@/components/ui/label';
 import { useProviderAuth } from '@/services/provider-auth-context';
 import { providerApi } from '@/services/provider-api';
 import { useToast } from '@/hooks/use-toast';
+import { ProfilePreviewBanner } from '@/components/profile/profile-preview-banner';
+import { canEditProfileAndDocuments } from '@/lib/profile-edit-lock';
 
 export default function EditServiceAreaPage() {
   const { user, refreshProfile } = useProviderAuth();
+  const canEdit = canEditProfileAndDocuments(user);
   const { toast } = useToast();
 
   const [city, setCity] = useState('');
@@ -69,6 +72,14 @@ export default function EditServiceAreaPage() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canEdit) {
+      toast({
+        title: 'Preview Mode',
+        description: 'Request Admin edit permission before modifying service territory.',
+        variant: 'destructive',
+      });
+      return;
+    }
     if (!city.trim()) {
       toast({ title: 'City required', description: 'Please specify your primary clinical city.', variant: 'destructive' });
       return;
@@ -76,21 +87,25 @@ export default function EditServiceAreaPage() {
     setSaving(true);
     try {
       const fd = new FormData();
-      const userId = user?._id || user?.id || '';
+      const userId = user?.therapistId || user?._id || user?.id || '';
       if (userId) fd.append('user', userId);
-      fd.append('city', city.trim());
-      fd.append('pincode', pincode.trim());
-      fd.append('serviceAreas', JSON.stringify(serviceAreas));
-      fd.append('targetPincodes', JSON.stringify(targetPincodes));
-      fd.append('serviceRadius', String(serviceRadius));
-      fd.append('maxDistance', String(serviceRadius));
-      fd.append('commuteType', commuteType);
-      fd.append('travelCapacity', travelCapacity);
-      fd.append('travelTimePreference', travelTimePreference);
-      fd.append('urgentVisits', String(urgentVisits));
+      const areaPayload: Record<string, any> = {
+        city: city.trim(),
+        pincode: pincode.trim(),
+        serviceAreas,
+        targetPincodes,
+        serviceRadius,
+        maxDistance: serviceRadius,
+        commuteType,
+        travelCapacity,
+        travelTimePreference,
+        urgentVisits,
+      };
       if (drivingLicenseNumber.trim()) {
-        fd.append('drivingLicenseNumber', drivingLicenseNumber.trim().toUpperCase());
+        areaPayload.drivingLicenseNumber = drivingLicenseNumber.trim().toUpperCase();
       }
+      // Canonical JSON envelope matching Flutter `edit_service_area_page.dart` & backend `addAreaOfServiceInfo`
+      fd.append('areaOfServiceInfo', JSON.stringify(areaPayload));
 
       const res = await providerApi.addAreaOfServiceInfo(fd);
       if (res && res.success === false) {
@@ -130,7 +145,10 @@ export default function EditServiceAreaPage() {
         </Button>
       </div>
 
+      <ProfilePreviewBanner contextLabel="service territory & commute preferences" />
+
       <form onSubmit={handleSave} className="space-y-6">
+        <fieldset disabled={!canEdit} className="space-y-6 disabled:opacity-95">
         <section className="rounded-3xl border border-border/80 bg-card p-6 shadow-sm space-y-5">
           <h2 className="text-sm font-outfit font-extrabold flex items-center gap-2">
             <MapPin className="w-4 h-4 text-primary" />
@@ -331,14 +349,18 @@ export default function EditServiceAreaPage() {
           </label>
         </section>
 
+        </fieldset>
+
         <div className="flex justify-end gap-3">
           <Button asChild type="button" variant="outline" className="h-11 rounded-2xl text-xs font-bold">
-            <Link href="/app/profile">Cancel</Link>
+            <Link href="/app/profile">{canEdit ? 'Cancel' : 'Back to Profile'}</Link>
           </Button>
-          <Button type="submit" disabled={saving} className="h-11 px-8 rounded-2xl text-xs font-extrabold gap-2">
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-            <span>{saving ? 'Saving Territory…' : 'Save Service Area'}</span>
-          </Button>
+          {canEdit && (
+            <Button type="submit" disabled={saving} className="h-11 px-8 rounded-2xl text-xs font-extrabold gap-2">
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              <span>{saving ? 'Saving Territory…' : 'Save Service Area'}</span>
+            </Button>
+          )}
         </div>
       </form>
     </div>

@@ -11,9 +11,12 @@ import {
   Eye,
   FileCheck,
   AlertTriangle,
+  Lock,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
+import { ProfilePreviewBanner } from '@/components/profile/profile-preview-banner';
+import { canEditProfileAndDocuments } from '@/lib/profile-edit-lock';
 
 /**
  * KYC Document Vault.
@@ -34,6 +37,7 @@ interface DocumentRow {
 
 export default function ProviderDocumentsPage() {
   const { user } = useProviderAuth();
+  const canEdit = canEditProfileAndDocuments(user);
 
   const documents: DocumentRow[] = useMemo(
     () => [
@@ -137,6 +141,8 @@ export default function ProviderDocumentsPage() {
         </div>
       </div>
 
+      <ProfilePreviewBanner contextLabel="KYC documents & credentials" />
+
       {missingRequired.length > 0 && (
         <div className="p-3.5 bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-xs font-bold rounded-2xl flex items-start gap-2">
           <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -205,12 +211,17 @@ export default function ProviderDocumentsPage() {
                         <span>View</span>
                       </Button>
                     </a>
-                  ) : (
+                  ) : canEdit ? (
                     <Link href="/app/profile/edit">
                       <Button variant="outline" size="sm" className="h-9 px-3 rounded-xl text-xs font-bold">
                         <span>Upload in profile</span>
                       </Button>
                     </Link>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-[11px] font-bold bg-muted text-muted-foreground border border-border/60">
+                      <Lock className="w-3 h-3" />
+                      <span>Preview Mode</span>
+                    </span>
                   )}
                 </div>
               </div>

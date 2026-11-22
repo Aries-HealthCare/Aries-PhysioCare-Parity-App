@@ -64,7 +64,7 @@ export default function ProviderInvoicesPage() {
     try {
       const appts = await providerApi.getAppointments();
       const rows: InvoiceRecord[] = (appts || []).map((a: any, idx: number) => {
-        const fee = Number(a.perSessionPrice ?? a.sessionFee ?? a.amount ?? 0) || 0;
+        const fee = Number(a.sessionAmount ?? a.perSessionPrice ?? a.sessionFee ?? a.amount ?? 0) || 0;
         const addOns = Number(a.addOnFees ?? a.addOnsTotal ?? 0) || 0;
         const total = Number(a.totalAmount ?? fee + addOns) || fee + addOns;
         const paymentStatus = String(a.paymentStatus || '').toLowerCase();

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { providerApi } from '@/services/provider-api';
 import { useRealtimeEvent } from '@/services/provider-realtime';
 import { useToast } from '@/hooks/use-toast';
+import { extractLeadDisplayFields } from '@/lib/lead-filtering';
 import {
   Radio,
   MapPin,
@@ -157,7 +158,9 @@ export default function ProviderLeadsPage() {
     try {
       const res = await providerApi.expressInterest(id);
       if (res.success) {
-        setNewLeads((prev) => prev.filter((l) => (l._id || l.id) !== id));
+        setNewLeads((prev) =>
+          prev.map((l) => ((l._id || l.id) === id ? { ...l, therapistResponse: 'Interested' } : l))
+        );
         showFeedback('success', 'Interest registered. Waiting for admin approval.', 'Interest Registered');
       } else {
         showFeedback('error', res.message || 'Failed to register interest.');
@@ -295,28 +298,25 @@ export default function ProviderLeadsPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {newLeads.map((lead: any) => {
-              const { patientObj, patientName, age, gender } = resolveLeadPatient(lead);
-              const condition = lead.condition || '—';
-              const pkg = lead.packageType || lead.packageName || '—';
-              const locality =
-                formatLeadAddress(lead.locality || lead.location || lead.city || patientObj?.address) || '—';
-              const distance = lead.distanceKm;
-              const payout = lead.payoutAmount || lead.sessionFee;
-              const urgency = lead.urgency;
-              const expiryText = getExpiryText(lead);
-              const id = lead._id || lead.id;
+              const d = extractLeadDisplayFields(lead, { maskName: true });
+              const scheduleText = [d.scheduledDate, d.scheduledTime].filter(Boolean).join(' · ');
               return (
-                <div key={id} className="bg-card border border-border/80 rounded-3xl p-5 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between">
+                <div key={d.id} className="bg-card border border-border/80 rounded-3xl p-5 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between">
                   <div>
                     {/* Patient info row */}
                     <div className="flex items-start justify-between gap-3 mb-3">
                       <div>
                         <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="text-sm font-bold text-foreground">{patientName}</h3>
-                          {age && <span className="text-[10px] text-muted-foreground">({age}y{gender ? ` ${gender[0]}` : ''})</span>}
-                          {urgency && getUrgencyBadge(urgency)}
+                          <h3 className="text-sm font-bold text-foreground">{d.displayName}</h3>
+                          {d.age && <span className="text-[10px] text-muted-foreground">({d.age}y{d.gender ? ` ${d.gender[0]}` : ''})</span>}
+                          {d.urgency && getUrgencyBadge(d.urgency)}
+                          {d.isWaitingApproval && (
+                            <span className="px-2 py-0.5 text-[10px] font-bold rounded-full bg-amber-500/15 text-amber-500 border border-amber-500/30">
+                              Waiting for Approval
+                            </span>
+                          )}
                         </div>
-                        <p className="text-xs text-muted-foreground mt-1">{condition}</p>
+                        <p className="text-xs text-muted-foreground mt-1">{d.condition}</p>
                       </div>
                     </div>
 
@@ -324,46 +324,62 @@ export default function ProviderLeadsPage() {
                     <div className="space-y-1.5 mb-4">
                       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                         <FileText className="w-3.5 h-3.5 shrink-0 text-primary" />
-                        <span>{pkg}</span>
+                        <span>{d.packageType}</span>
                       </div>
                       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                         <MapPin className="w-3.5 h-3.5 shrink-0 text-primary" />
-                        <span className="font-medium text-foreground">{locality}</span>
-                        {distance && <span>({distance} km away)</span>}
+                        <span className="font-medium text-foreground">{d.address || 'Location shared after assignment'}</span>
+                        {d.distanceKm && <span>({d.distanceKm} km away)</span>}
                       </div>
-                      {(lead.scheduledDate || lead.scheduledTime) && (
+                      {d.landmark && (
+                        <div className="text-[11px] text-muted-foreground pl-5">
+                          Landmark: {d.landmark}
+                        </div>
+                      )}
+                      {scheduleText && (
                         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                           <Calendar className="w-3.5 h-3.5 shrink-0 text-primary" />
-                          <span>{lead.scheduledDate || lead.scheduledTime}</span>
+                          <span>{scheduleText}</span>
                         </div>
                       )}
                       <div className="flex items-center justify-between text-xs pt-1">
-                        <span className="text-emerald-500 font-bold">₹{(payout || 0).toLocaleString('en-IN')} Therapist Payout</span>
+                        <span className="text-emerald-500 font-bold">
+                          {d.payoutAmount > 0
+                            ? `₹${d.payoutAmount.toLocaleString('en-IN')}/visit`
+                            : 'Standard Visit Rate'}
+                        </span>
                         <span className="text-muted-foreground flex items-center gap-1">
-                          <Clock className="w-3 h-3" /> {expiryText}
+                          <Clock className="w-3 h-3" /> {d.expiry.remainingLabel}
                         </span>
                       </div>
                     </div>
                   </div>
 
                   {/* Action buttons */}
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="flex-1 h-10 rounded-2xl text-xs font-bold border-destructive/30 text-destructive hover:bg-destructive/5"
-                      onClick={() => setPassDialogLead(lead)}
-                    >
-                      <XCircle className="w-3.5 h-3.5 mr-1.5" /> Pass
-                    </Button>
-                    <Button
-                      size="sm"
-                      className="flex-1 h-10 rounded-2xl bg-primary hover:bg-primary/95 text-white font-bold text-xs shadow-md shadow-primary/20"
-                      onClick={() => void handleInterest(lead)}
-                    >
-                      <Zap className="w-3.5 h-3.5 mr-1.5" /> Express Interest
-                    </Button>
-                  </div>
+                  {d.isWaitingApproval ? (
+                    <div className="h-10 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-amber-600 dark:text-amber-400 font-bold text-xs flex items-center justify-center gap-2">
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>WAITING FOR APPROVAL…</span>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1 h-10 rounded-2xl text-xs font-bold border-destructive/30 text-destructive hover:bg-destructive/5"
+                        onClick={() => setPassDialogLead(lead)}
+                      >
+                        <XCircle className="w-3.5 h-3.5 mr-1.5" /> Pass
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="flex-1 h-10 rounded-2xl bg-primary hover:bg-primary/95 text-white font-bold text-xs shadow-md shadow-primary/20"
+                        onClick={() => void handleInterest(lead)}
+                      >
+                        <Zap className="w-3.5 h-3.5 mr-1.5" /> Express Interest
+                      </Button>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -383,30 +399,27 @@ export default function ProviderLeadsPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {acquiredLeads.map((lead: any) => {
-              const { patientId, patientName, phone, address, age, gender } = resolveLeadPatient(lead);
-              const condition = lead.condition || lead.diagnosis || '—';
-              const pkg = lead.packageType || lead.packageName || '—';
+              const d = extractLeadDisplayFields(lead, { maskName: false });
               const completed = lead.completedSessions || 0;
               const total = lead.totalSessions || lead.sessionsCount || 0;
               const progress = total > 0 ? completed / total : 0;
-              const id = lead._id || lead.id;
-              const emrHref = patientId
-                ? `/app/patients/${encodeURIComponent(String(patientId))}`
-                : `/app/patients?search=${encodeURIComponent(patientName)}`;
+              const emrHref = d.patientId
+                ? `/app/patients/${encodeURIComponent(String(d.patientId))}`
+                : `/app/patients?search=${encodeURIComponent(d.fullName)}`;
               return (
-                <div key={id} className="bg-card border border-border/80 rounded-3xl p-5 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between">
+                <div key={d.id} className="bg-card border border-border/80 rounded-3xl p-5 shadow-sm hover:shadow-md transition-shadow flex flex-col justify-between">
                   <div>
                     {/* Patient info */}
                     <div className="flex items-center gap-3 mb-4">
                       <div className="w-10 h-10 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shrink-0 font-bold text-sm">
-                        {patientName[0]?.toUpperCase()}
+                        {d.fullName[0]?.toUpperCase()}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="text-sm font-bold text-foreground truncate">{patientName}</h3>
-                          {age && <span className="text-[10px] text-muted-foreground">({age}y{gender ? ` ${gender[0]}` : ''})</span>}
+                          <h3 className="text-sm font-bold text-foreground truncate">{d.fullName}</h3>
+                          {d.age && <span className="text-[10px] text-muted-foreground">({d.age}y{d.gender ? ` ${d.gender[0]}` : ''})</span>}
                         </div>
-                        <p className="text-xs text-muted-foreground truncate">{condition}</p>
+                        <p className="text-xs text-muted-foreground truncate">{d.condition}</p>
                       </div>
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 shrink-0">Active</span>
                     </div>
@@ -415,7 +428,7 @@ export default function ProviderLeadsPage() {
                     <div className="space-y-2 mb-4">
                       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                         <FileText className="w-3.5 h-3.5 shrink-0 text-primary" />
-                        <span>{pkg}</span>
+                        <span>{d.packageType}</span>
                       </div>
                       {total > 0 && (
                         <div>
@@ -428,10 +441,10 @@ export default function ProviderLeadsPage() {
                           </div>
                         </div>
                       )}
-                      {address && (
+                      {d.address && (
                         <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
                           <MapPin className="w-3.5 h-3.5 shrink-0 text-primary mt-0.5" />
-                          <span className="line-clamp-1">{address}</span>
+                          <span className="line-clamp-1">{d.address}</span>
                         </div>
                       )}
                     </div>
@@ -453,8 +466,8 @@ export default function ProviderLeadsPage() {
                         <Calendar className="w-3.5 h-3.5 mr-1" /> Schedule
                       </Button>
                     </Link>
-                    {phone && (
-                      <a href={`tel:${phone}`} className="col-span-1">
+                    {d.phone && (
+                      <a href={`tel:${d.phone}`} className="col-span-1">
                         <Button variant="outline" size="sm" className="w-full h-9 rounded-xl text-xs font-bold">
                           <Phone className="w-3.5 h-3.5 mr-1" /> Call
                         </Button>
@@ -463,7 +476,7 @@ export default function ProviderLeadsPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      className={`${phone ? 'col-span-1' : 'col-span-2'} h-9 rounded-xl text-xs font-bold border-emerald-500/30 text-emerald-600 hover:bg-emerald-500/5`}
+                      className={`${d.phone ? 'col-span-1' : 'col-span-2'} h-9 rounded-xl text-xs font-bold border-emerald-500/30 text-emerald-600 hover:bg-emerald-500/5`}
                       onClick={() => void handleReview(lead)}
                     >
                       <MessageSquare className="w-3.5 h-3.5 mr-1" /> Review

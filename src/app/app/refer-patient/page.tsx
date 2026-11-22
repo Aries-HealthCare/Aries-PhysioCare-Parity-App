@@ -129,7 +129,7 @@ function ProviderReferPatientContent() {
           visitsDone: p.visitsDone || 0,
           totalVisits: p.totalVisits || 10,
           status: p.status === 'Completed' ? 'Treatment Completed' : p.status === 'In Progress' ? 'In Treatment' : 'Lead Assigned',
-          earningsGenerated: (p.visitsDone || 0) * 78,
+          earningsGenerated: Number(p.referralAmount ?? 0) || 0,
         }));
         setReferredList(mapped);
       } else {
