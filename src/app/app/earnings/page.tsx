@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { useProviderAuth } from '@/services/provider-auth-context';
 import { providerApi } from '@/services/provider-api';
 import {
@@ -102,7 +103,11 @@ export default function ProviderEarningsPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-1.5 p-1 bg-muted/60 rounded-xl">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button asChild variant="outline" size="sm" className="h-9 rounded-xl text-xs font-bold">
+            <Link href="/app/earnings/history">Full History &amp; CSV →</Link>
+          </Button>
+          <div className="flex items-center gap-1.5 p-1 bg-muted/60 rounded-xl">
           {(['WEEK', 'MONTH', 'LIFETIME'] as const).map((p) => (
             <button
               key={p}
@@ -117,6 +122,7 @@ export default function ProviderEarningsPage() {
               {p === 'WEEK' ? 'This Week' : p === 'MONTH' ? 'This Month' : 'Lifetime'}
             </button>
           ))}
+          </div>
         </div>
       </div>
 

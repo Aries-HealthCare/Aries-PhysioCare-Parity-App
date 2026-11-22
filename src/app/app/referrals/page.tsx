@@ -22,9 +22,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
 import Link from 'next/link';
+import { useToast } from '@/hooks/use-toast';
 
 export default function ProviderReferralsPage() {
   const { user } = useProviderAuth();
+  const { toast } = useToast();
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [referralList, setReferralList] = useState<any[]>([]);
@@ -82,28 +84,49 @@ export default function ProviderReferralsPage() {
   const handleInviteDoctor = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!doctorName.trim() || !doctorMobile.trim()) {
-      alert('Please fill doctor name and mobile number.');
+      toast({
+        title: 'Missing details',
+        description: 'Please fill doctor name and mobile number.',
+        variant: 'destructive',
+      });
       return;
     }
 
     setIsSubmitting(true);
-    const res = await providerApi.createReferTherapist({
-      referredBy: user?._id || user?.id || 'therapist_' + Date.now(),
-      doctorName: doctorName.trim(),
-      doctorMobile: doctorMobile.trim(),
-      specialization,
-      city,
-    });
-    setIsSubmitting(false);
+    try {
+      const res = await providerApi.createReferTherapist({
+        referredBy: user?._id || user?.id || 'therapist_' + Date.now(),
+        doctorName: doctorName.trim(),
+        doctorMobile: doctorMobile.trim(),
+        specialization,
+        city,
+      });
 
-    if (res.success !== false) {
-      setShowInviteModal(false);
-      setFeedback(`🎉 Colleague ${doctorName} invited successfully! ₹1,000 bonus will credit once they complete their first visit.`);
-      setDoctorName('');
-      setDoctorMobile('');
-      loadReferrals();
-    } else {
-      alert(res.message || 'Failed to submit colleague referral.');
+      if (res.success !== false) {
+        setShowInviteModal(false);
+        setFeedback(`Colleague ${doctorName} invited successfully! ₹1,000 bonus will credit once they complete their first visit.`);
+        toast({
+          title: 'Colleague invited',
+          description: `${doctorName} has been invited to AriesXpert.`,
+        });
+        setDoctorName('');
+        setDoctorMobile('');
+        loadReferrals();
+      } else {
+        toast({
+          title: 'Referral failed',
+          description: res.message || 'Failed to submit colleague referral.',
+          variant: 'destructive',
+        });
+      }
+    } catch (err: any) {
+      toast({
+        title: 'Referral failed',
+        description: err?.message || 'Failed to submit colleague referral.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -129,7 +152,12 @@ export default function ProviderReferralsPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Link href="/app/referrals/app" prefetch={false}>
+            <Button variant="outline" className="h-10 px-4 rounded-2xl font-bold text-xs shadow-sm">
+              Referral Analytics
+            </Button>
+          </Link>
           <Button
             onClick={() => setShowInviteModal(true)}
             variant="outline"

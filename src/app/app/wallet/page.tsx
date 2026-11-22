@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { useProviderAuth } from '@/services/provider-auth-context';
 import { providerApi } from '@/services/provider-api';
 import { useRealtimeEvent } from '@/services/provider-realtime';
@@ -160,20 +161,26 @@ export default function ProviderWalletPage() {
   });
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
+    <div className="space-y-6 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-extrabold tracking-tight">My Wallet</h1>
-          <p className="text-xs text-muted-foreground mt-1">Balance, earnings history & payout requests</p>
+          <p className="text-xs text-muted-foreground mt-1">Balance, earnings history &amp; payout requests</p>
         </div>
-        <button
-          onClick={() => loadWalletData(true)}
-          disabled={refreshing}
-          className="w-10 h-10 rounded-2xl border border-border/80 bg-card flex items-center justify-center hover:bg-muted transition-colors"
-        >
-          {refreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-        </button>
+        <div className="flex items-center gap-2">
+          <Button asChild variant="outline" size="sm" className="h-10 rounded-2xl text-xs font-bold">
+            <Link href="/app/earnings/history">Full Ledger &amp; CSV</Link>
+          </Button>
+          <button
+            onClick={() => loadWalletData(true)}
+            disabled={refreshing}
+            aria-label="Refresh wallet"
+            className="w-10 h-10 rounded-2xl border border-border/80 bg-card flex items-center justify-center hover:bg-muted transition-colors"
+          >
+            {refreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+          </button>
+        </div>
       </div>
 
       {loadError && (

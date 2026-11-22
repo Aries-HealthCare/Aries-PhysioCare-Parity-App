@@ -1,8 +1,10 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { Suspense, useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useProviderAuth } from '@/services/provider-auth-context';
 import { providerApi } from '@/services/provider-api';
+import { useToast } from '@/hooks/use-toast';
 import {
   UserPlus,
   Users,
@@ -43,8 +45,11 @@ interface ReferredPatientItem {
   earningsGenerated: number;
 }
 
-export default function ProviderReferPatientPage() {
+function ProviderReferPatientContent() {
   const { user } = useProviderAuth();
+  const { toast } = useToast();
+  const searchParams = useSearchParams();
+  const queryHydratedRef = useRef(false);
   const [referredList, setReferredList] = useState<ReferredPatientItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -72,6 +77,23 @@ export default function ProviderReferPatientPage() {
   const [preferredDate, setPreferredDate] = useState('Tomorrow');
   const [preferredTime, setPreferredTime] = useState('10:00 AM - 11:00 AM');
   const [patientConfirmed, setPatientConfirmed] = useState(true);
+
+  useEffect(() => {
+    if (queryHydratedRef.current) return;
+    const qMode = searchParams.get('mode');
+    const qName = searchParams.get('patientName');
+    const qPhone = searchParams.get('phone');
+    if (qMode === 'form' || qName || qPhone) {
+      queryHydratedRef.current = true;
+      setShowReferForm(true);
+      if (qName) {
+        const parts = qName.trim().split(/\s+/);
+        setFirstName(parts[0] || '');
+        if (parts.length > 1) setLastName(parts.slice(1).join(' '));
+      }
+      if (qPhone) setPhone(qPhone);
+    }
+  }, [searchParams]);
 
   // Fetch dynamic packages and price resolution
   useEffect(() => {
@@ -133,15 +155,27 @@ export default function ProviderReferPatientPage() {
   const handleSubmitReferral = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!firstName.trim() || !phone.trim()) {
-      alert('Please fill patient first name and mobile number.');
+      toast({
+        title: 'Missing patient details',
+        description: 'Please fill patient first name and mobile number.',
+        variant: 'destructive',
+      });
       return;
     }
     if (!address.trim()) {
-      alert('Please fill patient residential address for doorstep care.');
+      toast({
+        title: 'Address required',
+        description: 'Please fill patient residential address for doorstep care.',
+        variant: 'destructive',
+      });
       return;
     }
     if (!patientConfirmed) {
-      alert('Please confirm that the patient is aware and agrees to the doorstep consultation.');
+      toast({
+        title: 'Patient confirmation required',
+        description: 'Please confirm that the patient is aware and agrees to the doorstep consultation.',
+        variant: 'destructive',
+      });
       return;
     }
 
@@ -179,25 +213,42 @@ export default function ProviderReferPatientPage() {
       patientConfirmed,
     };
 
-    const res = await providerApi.createReferPatient(payload);
-    setIsSubmitting(false);
+    try {
+      const res = await providerApi.createReferPatient(payload);
 
-    if (res.success !== false) {
-      setShowReferForm(false);
-      setSuccessFeedback(`🎉 Patient ${fullName} referred successfully! You will earn 10% commission on every session completed.`);
-      setFirstName('');
-      setLastName('');
-      setPhone('');
-      setAge('');
-      setAddress('');
-      setLandmark('');
-      setArea('');
-      setPincode('');
-      setCondition('');
-      setCustomCondition('');
-      loadReferrals();
-    } else {
-      alert(res.message || 'Failed to submit referral. Please try again.');
+      if (res.success !== false) {
+        setShowReferForm(false);
+        setSuccessFeedback(`Patient ${fullName} referred successfully! You will earn 10% commission on every session completed.`);
+        toast({
+          title: 'Patient referred',
+          description: `${fullName} has been submitted for doorstep care.`,
+        });
+        setFirstName('');
+        setLastName('');
+        setPhone('');
+        setAge('');
+        setAddress('');
+        setLandmark('');
+        setArea('');
+        setPincode('');
+        setCondition('');
+        setCustomCondition('');
+        loadReferrals();
+      } else {
+        toast({
+          title: 'Referral failed',
+          description: res.message || 'Failed to submit referral. Please try again.',
+          variant: 'destructive',
+        });
+      }
+    } catch (err: any) {
+      toast({
+        title: 'Referral failed',
+        description: err?.message || 'Failed to submit referral. Please try again.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -595,5 +646,19 @@ export default function ProviderReferPatientPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function ProviderReferPatientPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="max-w-6xl mx-auto py-12 flex items-center justify-center">
+          <Loader2 className="w-6 h-6 animate-spin text-primary" />
+        </div>
+      }
+    >
+      <ProviderReferPatientContent />
+    </Suspense>
   );
 }
