@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { persistBrowserSession } from '@/lib/expert-session';
+import { parseSsoHash, stripSsoHashFromUrl } from '@/lib/sso-handoff';
 import {
   isOnboardingPendingReview,
   needsOnboarding,
@@ -16,6 +17,7 @@ interface ProviderAuthContextType {
   user: MobileExpertProfile | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  isSsoAuthenticating: boolean;
   dutyStatus: boolean;
   toggleDutyStatus: () => Promise<void>;
   loginWithPhoneOtp: (phone: string, otp: string) => Promise<boolean>;
@@ -45,6 +47,7 @@ function persistUser(userData: MobileExpertProfile) {
 export function ProviderAuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<MobileExpertProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSsoAuthenticating, setIsSsoAuthenticating] = useState(false);
   const [dutyStatus, setDutyStatus] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
@@ -70,6 +73,42 @@ export function ProviderAuthProvider({ children }: { children: React.ReactNode }
     let cancelled = false;
 
     const restore = async () => {
+      // 0. Check cross-app Website -> Parity App SSO handoff (`#sso_token=...&expert_id=...`)
+      const ssoPayload =
+        typeof window !== 'undefined' ? parseSsoHash(window.location.hash) : null;
+
+      if (ssoPayload) {
+        stripSsoHashFromUrl();
+        if (!cancelled) setIsSsoAuthenticating(true);
+        try {
+          providerApi.saveToken(ssoPayload.token);
+          await persistBrowserSession(ssoPayload.token);
+          const verified = await providerApi.refreshUser(ssoPayload.expertId);
+          if (
+            !cancelled &&
+            verified.success &&
+            verified.result &&
+            resolvePostAuthRoute(verified.result) === '/app'
+          ) {
+            applyUser(verified.result);
+            setIsSsoAuthenticating(false);
+            setIsLoading(false);
+            router.replace('/app');
+            return;
+          }
+          // Not active/approved or verification failed — stay on /login cleanly
+          providerApi.clearToken();
+        } catch {
+          providerApi.clearToken();
+        } finally {
+          if (!cancelled) {
+            setIsSsoAuthenticating(false);
+            setIsLoading(false);
+          }
+        }
+        return;
+      }
+
       const token = providerApi.getToken();
       const cachedRaw = typeof window !== 'undefined' ? localStorage.getItem('expert_user_data') : null;
       let cached: MobileExpertProfile | null = null;
@@ -222,6 +261,7 @@ if ((pathname === '/login' || pathname === '/verify' || pathname === '/reset-pas
         user,
         isAuthenticated: !!user,
         isLoading,
+        isSsoAuthenticating,
         dutyStatus,
         toggleDutyStatus,
         loginWithPhoneOtp,

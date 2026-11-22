@@ -49,7 +49,14 @@ const SCREEN_ORDER: ScreenMode[] = ['mobile', 'otp', 'email', 'emailOtp', 'reset
 
 export function LoginPortal() {
   const router = useRouter();
-  const { user, loginWithPhoneOtp, loginWithEmail, loginWithEmailOtp, isAuthenticated } = useProviderAuth();
+  const {
+    user,
+    loginWithPhoneOtp,
+    loginWithEmail,
+    loginWithEmailOtp,
+    isAuthenticated,
+    isSsoAuthenticating,
+  } = useProviderAuth();
 
   const [currentScreen, setCurrentScreen] = useState<ScreenMode>('mobile');
   const [screenDirection, setScreenDirection] = useState<1 | -1>(1);
@@ -335,6 +342,25 @@ export function LoginPortal() {
       setIsLoading(false);
     }
   };
+
+  if (isSsoAuthenticating) {
+    return (
+      <div className="min-h-screen w-full bg-[#030712] text-white flex flex-col items-center justify-center relative overflow-hidden select-none font-sans px-6">
+        <Login3DBackground />
+        <div className="relative z-10 max-w-sm w-full rounded-3xl border border-white/10 bg-slate-900/70 backdrop-blur-xl p-8 text-center space-y-4 shadow-2xl">
+          <div className="w-12 h-12 rounded-2xl bg-primary/15 border border-primary/30 text-primary flex items-center justify-center mx-auto">
+            <Loader2 className="w-6 h-6 animate-spin" />
+          </div>
+          <h2 className="text-lg font-extrabold tracking-tight text-white">
+            Opening Your AriesXpert Dashboard
+          </h2>
+          <p className="text-xs text-slate-400">
+            Verifying your accredited practitioner session...
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen w-full bg-[#030712] text-white flex flex-col justify-between relative overflow-hidden select-none font-sans py-8 px-4 sm:px-6">
